@@ -362,14 +362,80 @@ function VTab(){const[addr,sA]=useState("");const[ld,sL]=useState(false);const[d
   </div>;
 }
 
-function WL({wl,onRm}){
-  if(!wl.length)return<div style={{textAlign:"center",padding:60}}><div style={{fontSize:28,opacity:.2,marginBottom:8}}>👁</div><div style={{fontSize:11,color:C.tS}}>No wallets watched</div></div>;
-  return<div>{wl.map((w,i)=><div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 10px",background:C.bgC,border:`1px solid ${C.bd}`,borderRadius:5,marginBottom:3}}>
-    <div style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontSize:11,color:C.t}}>{tr(w.owner,6)}</span><B text={w.lb} color={C.c}/></div>
-    <span style={{fontSize:11,color:w.pnlData?.totalPnL>=0?C.g:C.r}}>{w.pnlData?.totalPnL!=null?$u(w.pnlData.totalPnL):"—"}</span>
-    <span style={{fontSize:11,color:C.t}}>{w.pct.toFixed(2)}%</span>
-    <button onClick={()=>onRm(i)} style={{background:"none",border:`1px solid ${C.bd}`,borderRadius:3,color:C.r,cursor:"pointer",padding:"2px 5px",fontSize:8,fontFamily:"inherit"}}>X</button>
-  </div>)}</div>;
+function WL({wl,onRm,tokenPrice,sym}){
+  const[wExp,setWExp]=useState(null);
+  if(!wl.length)return<div style={{textAlign:"center",padding:60}}><div style={{fontSize:28,opacity:.2,marginBottom:8}}>👁</div><div style={{fontSize:11,color:C.tS}}>No wallets watched</div><div style={{fontSize:10,color:C.tM,marginTop:4}}>+W holders in Discover to track</div></div>;
+  return<div>
+    <div style={{fontSize:9,color:C.tM,letterSpacing:2,marginBottom:8}}>WATCHED — {wl.length} wallets</div>
+    <div style={{display:"grid",gridTemplateColumns:"28px 1.4fr 0.5fr 0.4fr 0.7fr 0.4fr 0.45fr 0.5fr 38px",padding:"4px 8px",gap:3,fontSize:8,color:C.tM,letterSpacing:1.2,borderBottom:`1px solid ${C.bd}`,marginBottom:3}}>
+      <span>#</span><span>WALLET</span><span style={{textAlign:"right"}}>HOLD%</span><span style={{textAlign:"right"}}>RISK</span><span style={{textAlign:"right"}}>TOTAL PnL</span><span style={{textAlign:"right"}}>WIN%</span><span style={{textAlign:"right"}}>AVG HOLD</span><span style={{textAlign:"right"}}>BAG $</span><span></span>
+    </div>
+    {wl.map((w,i)=>{
+      const pnl=w.pnlData;const tp=pnl?.totalPnL;const wr=pnl?.winRate;const ah=pnl?.avgHold;
+      const rc=w.rs>60?C.r:w.rs>30?C.y:C.g;
+      const lc=w.lb==="Sniper Bot"||w.lb==="Dumper"?C.r:w.lb==="Whale"?C.o:w.lb==="Flipper"?C.p:w.lb.includes("Trader")?C.y:C.c;
+      const holdVal=w.amt&&tokenPrice?w.amt*tokenPrice:null;
+      const isExp=wExp===w.owner;
+      return<div key={i} style={{background:isExp?C.bgH:C.bgC,border:`1px solid ${isExp?C.bdH:C.bd}`,borderRadius:5,marginBottom:3,cursor:"pointer"}}>
+        <div onClick={()=>setWExp(isExp?null:w.owner)} style={{display:"grid",gridTemplateColumns:"28px 1.4fr 0.5fr 0.4fr 0.7fr 0.4fr 0.45fr 0.5fr 38px",alignItems:"center",padding:"7px 8px",gap:3}}>
+          <span style={{fontSize:10,color:C.tM}}>#{i+1}</span>
+          <div style={{display:"flex",alignItems:"center",gap:4,overflow:"hidden"}}><span style={{fontSize:11,color:C.t}}>{tr(w.owner,5)}</span><B text={w.lb} color={lc}/></div>
+          <span style={{fontSize:11,color:C.t,textAlign:"right"}}>{w.pct.toFixed(2)}%</span>
+          <span style={{fontSize:11,color:rc,textAlign:"right"}}>{w.rs}</span>
+          <span style={{fontSize:11,textAlign:"right",color:tp!=null?(tp>=0?C.g:C.r):C.tM,fontWeight:600}}>{tp!=null?$u(tp):"—"}</span>
+          <span style={{fontSize:11,textAlign:"right",color:wr!=null?(wr>=50?C.g:C.r):C.tM}}>{wr!=null?`${wr.toFixed(0)}%`:"—"}</span>
+          <span style={{fontSize:10,textAlign:"right",color:C.tS}}>{ah!=null?ah<1?`${(ah*60).toFixed(0)}m`:`${ah.toFixed(1)}h`:"—"}</span>
+          <span style={{fontSize:10,textAlign:"right",color:C.tS}}>{holdVal!=null?$v(holdVal):"—"}</span>
+          <button onClick={e=>{e.stopPropagation();onRm(i)}} style={{background:"none",border:`1px solid ${C.bd}`,borderRadius:3,color:C.r,cursor:"pointer",padding:"2px 4px",fontSize:8,fontFamily:"inherit"}}>X</button>
+        </div>
+        {isExp&&<div style={{padding:"0 8px 12px",borderTop:`1px solid ${C.bd}`,display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,animation:"fadeIn 0.2s"}}>
+          <div style={{paddingTop:10}}>
+            <div style={{fontSize:9,color:C.tM,letterSpacing:2,marginBottom:6}}>WALLET</div>
+            <KV k="Address" v={tr(w.owner,10)}/><KV k="SOL" v={w.sol!=null?`${w.sol.toFixed(3)} SOL`:"—"}/>
+            <KV k="Holding" v={`${w.amt?.toLocaleString(undefined,{maximumFractionDigits:0})} ${sym||""}`}/>
+            <KV k="Bag Value" v={holdVal!=null?$v(holdVal):"—"} color={C.g}/>
+            <KV k="% Supply" v={`${w.pct.toFixed(4)}%`}/>
+            {pnl&&pnl.totalTrades>0&&<>
+              <div style={{fontSize:9,color:C.tM,letterSpacing:2,marginTop:10,marginBottom:6}}>P&L BREAKDOWN</div>
+              <KV k="Total PnL" v={tp!=null?$u(tp):"—"} color={tp!=null?(tp>=0?C.g:C.r):C.tM}/>
+              <KV k="Realized" v={pnl.realizedPnL!=null?$u(pnl.realizedPnL):"—"} color={(pnl.realizedPnL||0)>=0?C.g:C.r}/>
+              <KV k="Unrealized" v={pnl.unrealizedPnL!=null?$u(pnl.unrealizedPnL):"—"} color={(pnl.unrealizedPnL||0)>=0?C.g:C.r}/>
+              <KV k="Cost Basis" v={pnl.costBasis>0?$v(pnl.costBasis):"—"}/>
+              <KV k="Avg Buy" v={pnl.avgBuyPrice?fp(pnl.avgBuyPrice):"—"}/>
+              <KV k="Win Rate" v={wr!=null?`${wr.toFixed(1)}%`:"—"} color={wr!=null?(wr>=50?C.g:C.r):C.tM}/>
+              <KV k="Buys / Sells" v={`${pnl.buyCount} / ${pnl.sellCount}`}/>
+              <KV k="Avg Hold" v={ah!=null?ah<1?`${(ah*60).toFixed(0)} min`:`${ah.toFixed(1)}h`:"—"}/>
+            </>}
+            {pnl?.trades?.length>0&&<>
+              <div style={{fontSize:9,color:C.tM,letterSpacing:2,marginTop:10,marginBottom:6}}>TRADE LOG</div>
+              {pnl.trades.slice(0,8).map((t,j)=><div key={j} style={{display:"flex",gap:5,fontSize:10,marginBottom:2,alignItems:"center"}}>
+                <B text={t.type} color={t.type==="BUY"?C.g:C.r}/>
+                <span style={{color:C.tS}}>{t.token?.toLocaleString(undefined,{maximumFractionDigits:0})} {sym||""}</span>
+                <span style={{color:C.t,fontWeight:600}}>{$v(t.usd)}</span>
+                <span style={{color:C.tM}}>{ago(t.ts)}</span>
+              </div>)}
+            </>}
+            <div style={{fontSize:9,color:C.tM,letterSpacing:2,marginTop:10,marginBottom:6}}>FLAGS</div>
+            {w.fl.map((f,j)=><div key={j} style={{display:"flex",gap:4,marginBottom:3,fontSize:10.5,color:fc(f.s)}}><span>{fi(f.s)}</span><span>{f.t}</span></div>)}
+          </div>
+          <div style={{paddingTop:10}}>
+            <div style={{fontSize:9,color:C.tM,letterSpacing:2,marginBottom:6}}>RECENT TXS ({(w.txs||[]).length})</div>
+            {(w.txs||[]).slice(0,12).map((tx,j)=><div key={j} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"3px 4px",marginBottom:2,borderRadius:3,background:`${C.bg}88`,fontSize:9.5,gap:3}}>
+              <B text={tx.type||"TX"} color={tx.type==="SWAP"?C.c:tx.type==="TRANSFER"?C.y:C.tS}/>
+              <span style={{color:C.tS,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginLeft:2}}>{tx.description?.slice(0,40)||tr(tx.signature,6)}</span>
+              <span style={{color:C.tM,flexShrink:0}}>{ago(tx.timestamp)}</span>
+            </div>)}
+            {(!w.txs||!w.txs.length)&&<div style={{fontSize:10,color:C.tM}}>No TX data — expand in Discover first</div>}
+            <div style={{fontSize:9,color:C.tM,letterSpacing:2,marginTop:10,marginBottom:4}}>LINKS</div>
+            <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+              {[["Solscan",`https://solscan.io/account/${w.owner}`],["Birdeye",`https://birdeye.so/profile/${w.owner}?chain=solana`],["SolanaFM",`https://solana.fm/address/${w.owner}`]].map(([n,u])=>
+                <a key={n} href={u} target="_blank" rel="noopener noreferrer" style={{padding:"2px 7px",borderRadius:3,fontSize:9,color:C.g,background:C.gD,border:`1px solid ${C.g}30`,fontFamily:"inherit"}}>{n}↗</a>)}
+            </div>
+          </div>
+        </div>}
+      </div>;
+    })}
+  </div>;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -492,7 +558,7 @@ export default function Signal(){
         {!ld&&!hl.length&&!err&&<div style={{textAlign:"center",padding:60}}><div style={{fontSize:36,opacity:.2,marginBottom:12}}>⚡</div><div style={{fontSize:11,color:C.tS,letterSpacing:2}}>PASTE A TOKEN MINT</div></div>}
       </div>}
       {tab==="validate"&&<div style={{animation:"fadeIn 0.2s"}}><VTab/></div>}
-      {tab==="watchlist"&&<div style={{animation:"fadeIn 0.2s"}}><WL wl={wl} onRm={i=>setWl(wl.filter((_,x)=>x!==i))}/></div>}
+      {tab==="watchlist"&&<div style={{animation:"fadeIn 0.2s"}}><WL wl={wl} onRm={i=>setWl(wl.filter((_,x)=>x!==i))} tokenPrice={tokenPrice} sym={tm?.symbol||""}/></div>}
     </main>
     <footer style={{padding:"12px 20px",borderTop:`1px solid ${C.bd}`,display:"flex",justifyContent:"space-between",marginTop:20}}>
       <span style={{fontSize:9,color:C.tM,letterSpacing:2}}>SIGNAL v3.3</span>
