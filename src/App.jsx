@@ -1,377 +1,96 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 
-const C = {
-  bg0: "#08090c", bg1: "#0c0d11", bg2: "#101219", bg3: "#151720",
-  surface: "#181a24", surfaceHover: "#1c1e2a",
-  border: "#1e2030", borderLight: "#262840",
-  text: "#d1d5e8", textSoft: "#8b90a8", textMuted: "#505470", textGhost: "#353850",
-  accent: "#34d399", accentBg: "#34d39910",
-  red: "#f87171", redBg: "#f8717110",
-  amber: "#fbbf24", amberBg: "#fbbf2410",
-  blue: "#60a5fa", purple: "#a78bfa", white: "#eef0ff",
-  fontMono: "'Geist Mono', 'JetBrains Mono', 'SF Mono', monospace",
-  fontSans: "'Geist', 'DM Sans', -apple-system, sans-serif",
-};
-
-const fmt = (n) => {
-  if (!n && n !== 0) return "—";
-  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
-  if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
-  if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
-  return `$${n.toFixed(0)}`;
-};
-const fmtPct = (n) => (!n && n !== 0) ? "—" : `${n > 0 ? "+" : ""}${n.toFixed(1)}%`;
-const fmtAge = (ts) => { if (!ts) return "—"; const m = Math.floor((Date.now() - ts) / 60000); if (m < 60) return `${m}m`; const h = Math.floor(m / 60); if (h < 24) return `${h}h`; return `${Math.floor(h / 24)}d`; };
-
-const CHAINS = { solana: { label: "SOL", color: "#9945FF" }, ethereum: { label: "ETH", color: "#627EEA" }, base: { label: "BASE", color: "#0052FF" }, bsc: { label: "BSC", color: "#F3BA2F" }, arbitrum: { label: "ARB", color: "#28A0F0" } };
-
+const HELIUS_KEY = "efb053d6-f7c7-4c90-9bc5-0ce3af9c59df";
+const BIRDEYE_KEY = "94ba9de0953642878038f5a7eccc1114";
+const HELIUS_RPC = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_KEY}`;
+const HELIUS_API = `https://api.helius.xyz/v0`;
+const BIRDEYE = "https://public-api.birdeye.so";
 const DEX = "https://api.dexscreener.com";
+const birdH = { accept: "application/json", "x-chain": "solana", "X-API-KEY": BIRDEYE_KEY };
 
-async function fetchNewPairs(chain) {
-  try {
-    const res = await fetch(`${DEX}/token-profiles/latest/v1`);
-    if (!res.ok) throw new Error(`${res.status}`);
-    const profiles = await res.json();
-    const filtered = profiles.filter(p => p.chainId === chain).slice(0, 20);
-    if (!filtered.length) return [];
-    const addrs = filtered.map(p => p.tokenAddress);
-    const chunks = [];
-    for (let i = 0; i < addrs.length; i += 30) chunks.push(addrs.slice(i, i + 30));
-    let all = [];
-    for (const ch of chunks) {
-      const r = await fetch(`${DEX}/tokens/v1/${chain}/${ch.join(",")}`);
-      if (r.ok) { const d = await r.json(); if (Array.isArray(d)) all = all.concat(d); }
-    }
-    return all;
-  } catch (e) { console.error(e); return []; }
-}
+const T = { bg:"#07080b",bg1:"#0b0c10",bg2:"#0f1016",bg3:"#14151d",surface:"#181924",sHover:"#1d1e2c",brd:"#1c1d2c",brdL:"#24253a",tx:"#cdd1e4",txS:"#878ba4",txM:"#4e5270",txG:"#32354c",g:"#22c55e",gBg:"#22c55e0c",r:"#ef4444",rBg:"#ef44440c",a:"#eab308",aBg:"#eab3080c",b:"#3b82f6",p:"#8b5cf6",w:"#edf0ff",m:"'Geist Mono','JetBrains Mono','SF Mono',monospace",s:"'Geist','DM Sans',-apple-system,sans-serif" };
 
-async function fetchBoosted() {
-  try { const r = await fetch(`${DEX}/token-boosts/latest/v1`); return r.ok ? await r.json() : []; }
-  catch { return []; }
-}
+const fmt=(n)=>{if(!n&&n!==0)return"—";if(n>=1e9)return`$${(n/1e9).toFixed(2)}B`;if(n>=1e6)return`$${(n/1e6).toFixed(2)}M`;if(n>=1e3)return`$${(n/1e3).toFixed(1)}K`;return`$${n.toFixed(0)}`};
+const fmtPct=(n)=>(!n&&n!==0)?"—":`${n>0?"+":""}${n.toFixed(1)}%`;
+const fmtAge=(ts)=>{if(!ts)return"—";const m=Math.floor((Date.now()-ts)/60000);if(m<60)return`${m}m`;const h=Math.floor(m/60);if(h<24)return`${h}h`;return`${Math.floor(h/24)}d`};
+const short=(a)=>a?`${a.slice(0,4)}...${a.slice(-4)}`:"—";
+const CHAINS={solana:{l:"SOL",c:"#9945FF"},ethereum:{l:"ETH",c:"#627EEA"},base:{l:"BASE",c:"#0052FF"}};
 
-async function searchTokens(q) {
-  try { const r = await fetch(`${DEX}/latest/dex/search?q=${encodeURIComponent(q)}`); const d = await r.json(); return d.pairs || []; }
-  catch { return []; }
-}
+/* API LAYER */
+async function dexFetch(url){const r=await fetch(url);if(!r.ok)throw new Error(`${r.status}`);return r.json()}
+async function getNewPairs(chain){try{const profiles=await dexFetch(`${DEX}/token-profiles/latest/v1`);const f=profiles.filter(p=>p.chainId===chain).slice(0,25);if(!f.length)return[];const addrs=[...new Set(f.map(p=>p.tokenAddress))];let all=[];for(let i=0;i<addrs.length;i+=30){try{const d=await dexFetch(`${DEX}/tokens/v1/${chain}/${addrs.slice(i,i+30).join(",")}`);if(Array.isArray(d))all=all.concat(d)}catch{}}return all}catch(e){console.error(e);return[]}}
+async function getBoosted(){try{return await dexFetch(`${DEX}/token-boosts/latest/v1`)}catch{return[]}}
 
-function norm(p) {
-  const bt = p.baseToken || {}, qt = p.quoteToken || {}, tx = p.txns || {}, v = p.volume || {}, pc = p.priceChange || {}, lq = p.liquidity || {}, info = p.info || {};
-  const b5 = tx.m5?.buys || 0, s5 = tx.m5?.sells || 0, b1 = tx.h1?.buys || 0, s1 = tx.h1?.sells || 0, b24 = tx.h24?.buys || 0, s24 = tx.h24?.sells || 0;
-  const t5 = b5 + s5, t1 = b1 + s1;
-  return {
-    id: p.pairAddress || Math.random().toString(36).slice(2),
-    name: bt.symbol ? `$${bt.symbol}` : "???", fullName: bt.name || "",
-    address: bt.address || "", pairAddress: p.pairAddress || "", chain: p.chainId || "solana", dex: p.dexId || "",
-    mc: p.marketCap || p.fdv || 0, fdv: p.fdv || 0, liq: lq.usd || 0, price: parseFloat(p.priceUsd) || 0,
-    age: p.pairCreatedAt || 0, vol5m: v.m5 || 0, vol1h: v.h1 || 0, vol6h: v.h6 || 0, vol24h: v.h24 || 0,
-    pc5m: pc.m5 || 0, pc1h: pc.h1 || 0, pc6h: pc.h6 || 0, pc24h: pc.h24 || 0,
-    buys5m: b5, sells5m: s5, buys1h: b1, sells1h: s1, buys24h: b24, sells24h: s24,
-    buyPct5m: t5 > 0 ? b5 / t5 * 100 : 50, buyPct1h: t1 > 0 ? b1 / t1 * 100 : 50,
-    txns5m: t5, txns1h: t1, txns24h: b24 + s24, quoteSymbol: qt.symbol || "SOL",
-    imgUrl: info.imageUrl || null, websites: info.websites || [], socials: info.socials || [],
-    boosts: p.boosts?.active || 0,
-  };
-}
+async function birdTokenSecurity(addr){try{const r=await fetch(`${BIRDEYE}/defi/token_security?address=${addr}`,{headers:birdH});const d=await r.json();return d.data||null}catch{return null}}
+async function birdTokenOverview(addr){try{const r=await fetch(`${BIRDEYE}/defi/token_overview?address=${addr}`,{headers:birdH});const d=await r.json();return d.data||null}catch{return null}}
+async function birdWalletPortfolio(wallet){try{const r=await fetch(`${BIRDEYE}/v1/wallet/token_list?wallet=${wallet}`,{headers:birdH});const d=await r.json();return d.data?.items||[]}catch{return[]}}
 
-/* ═══ MICRO COMPONENTS ═══ */
-const ChainPill = ({ chain }) => { const m = CHAINS[chain] || { label: "?", color: "#666" }; return <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: 0.5, color: m.color, fontFamily: C.fontMono }}>{m.label}</span>; };
+async function heliusRpc(method,params){try{const r=await fetch(HELIUS_RPC,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method,params})});const d=await r.json();return d.result||null}catch{return null}}
+async function getTopHolders(mint){const r=await heliusRpc("getTokenLargestAccounts",[mint]);return r?.value||[]}
+async function getTokenSupply(mint){const r=await heliusRpc("getTokenSupply",[mint]);return r?.value||null}
+async function getRecentSignatures(addr,limit=15){return(await heliusRpc("getSignaturesForAddress",[addr,{limit}]))||[]}
+async function getTokenAccounts(wallet){const r=await heliusRpc("getTokenAccountsByOwner",[wallet,{programId:"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{encoding:"jsonParsed"}]);return r?.value||[]}
+async function heliusParsedTxns(addr,limit=10){try{const r=await fetch(`${HELIUS_API}/addresses/${addr}/transactions?api-key=${HELIUS_KEY}&limit=${limit}`);if(!r.ok)return[];return await r.json()}catch{return[]}}
 
-const Delta = ({ val, sz = 11 }) => {
-  if (val === null || val === undefined || isNaN(val)) return <span style={{ color: C.textMuted, fontSize: sz, fontFamily: C.fontMono }}>—</span>;
-  return <span style={{ fontSize: sz, fontWeight: 600, color: val > 0 ? C.accent : val < 0 ? C.red : C.textMuted, fontFamily: C.fontMono }}>{fmtPct(val)}</span>;
-};
+function norm(p){const bt=p.baseToken||{},qt=p.quoteToken||{},tx=p.txns||{},v=p.volume||{},pc=p.priceChange||{},lq=p.liquidity||{},info=p.info||{};const b5=tx.m5?.buys||0,s5=tx.m5?.sells||0,b1=tx.h1?.buys||0,s1=tx.h1?.sells||0,b24=tx.h24?.buys||0,s24=tx.h24?.sells||0;const t5=b5+s5,t1=b1+s1;return{id:p.pairAddress||Math.random().toString(36).slice(2),name:bt.symbol?`$${bt.symbol}`:"???",fullName:bt.name||"",addr:bt.address||"",pair:p.pairAddress||"",chain:p.chainId||"solana",dex:p.dexId||"",mc:p.marketCap||p.fdv||0,fdv:p.fdv||0,liq:lq.usd||0,price:parseFloat(p.priceUsd)||0,age:p.pairCreatedAt||0,v5m:v.m5||0,v1h:v.h1||0,v6h:v.h6||0,v24h:v.h24||0,pc5m:pc.m5||0,pc1h:pc.h1||0,pc6h:pc.h6||0,pc24h:pc.h24||0,b5,s5,b1,s1,b24,s24,bp5:t5>0?b5/t5*100:50,bp1:t1>0?b1/t1*100:50,tx5:t5,tx1:t1,tx24:b24+s24,qSym:qt.symbol||"SOL",img:info.imageUrl||null,web:info.websites||[],soc:info.socials||[],boost:p.boosts?.active||0}}
 
-const BSBar = ({ pct, w = 44 }) => {
-  const p = Math.max(0, Math.min(100, pct));
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-      <div style={{ width: w, height: 3, borderRadius: 1, background: C.redBg, overflow: "hidden" }}>
-        <div style={{ width: `${p}%`, height: "100%", background: p > 60 ? C.accent : p > 45 ? C.amber : C.red, opacity: 0.65 }} />
-      </div>
-      <span style={{ fontSize: 9, fontFamily: C.fontMono, color: p > 60 ? C.accent : p > 45 ? C.textSoft : C.red, fontWeight: 500, minWidth: 18 }}>{p.toFixed(0)}</span>
-    </div>
-  );
-};
+const SMART_WALLETS=[{addr:"FnMtJFpGYoAQTJPJnwDHFQnxTPJdbnEMfJM1PwfaKVmt",label:"SW-1",pnl:">$2M"},{addr:"5GmLJQiYuCMNnEv4PoVWkfz1hUG3oTPzA6sDFwusLiVJ",label:"SW-2",pnl:">$1M"},{addr:"HNoEt8Jd2gPRaN66HXnCGEHZMwqk4RcaLEJ8UiYq4JbV",label:"SW-3",pnl:">$800K"},{addr:"Cz1kHi3eFKZSHFMk6sbcbVhDfPLtojPgmrv72KFSkbRN",label:"SW-4",pnl:">$500K"},{addr:"8rvz2Bg4DP32KxyTr2N1REXFBEQwBqPaACrCEZNyN4Lq",label:"SW-5",pnl:">$500K"},{addr:"GmEFwJRTicRNJbiFqxPBEFVFnMYTwWaKon7oNPHZcaeh",label:"SW-6",pnl:">$400K"}];
 
-const Stat = ({ label, value, warn, danger, accent: isAcc }) => (
-  <div>
-    <div style={{ fontSize: 9, color: C.textMuted, letterSpacing: 0.8, fontWeight: 500, fontFamily: C.fontMono, marginBottom: 3, textTransform: "uppercase" }}>{label}</div>
-    <div style={{ fontSize: 13, fontWeight: 600, fontFamily: C.fontMono, color: danger ? C.red : warn ? C.amber : isAcc ? C.accent : C.white, lineHeight: 1 }}>{value}</div>
-  </div>
-);
+/* UI */
+const CP=({chain})=>{const m=CHAINS[chain]||{l:"?",c:"#666"};return<span style={{fontSize:9,fontWeight:600,letterSpacing:.5,color:m.c,fontFamily:T.m}}>{m.l}</span>};
+const Dv=({v,sz=11})=>{if(v==null||isNaN(v))return<span style={{color:T.txM,fontSize:sz,fontFamily:T.m}}>—</span>;return<span style={{fontSize:sz,fontWeight:600,color:v>0?T.g:v<0?T.r:T.txM,fontFamily:T.m}}>{fmtPct(v)}</span>};
+const BSBar=({p:pct,w=40})=>{const p=Math.max(0,Math.min(100,pct));return<div style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:w,height:3,borderRadius:1,background:T.rBg,overflow:"hidden"}}><div style={{width:`${p}%`,height:"100%",background:p>60?T.g:p>45?T.a:T.r,opacity:.6}}/></div><span style={{fontSize:9,fontFamily:T.m,color:p>60?T.g:p>45?T.txS:T.r,fontWeight:500,minWidth:16}}>{p.toFixed(0)}</span></div>};
+const Badge=({children,color=T.g})=><span style={{fontSize:8,padding:"2px 5px",borderRadius:2,background:`${color}10`,color,fontFamily:T.m,fontWeight:700,letterSpacing:.4,border:`1px solid ${color}18`,whiteSpace:"nowrap"}}>{children}</span>;
+const Pill=({active,onClick,children})=><button onClick={onClick} style={{padding:"5px 12px",borderRadius:3,border:"none",cursor:"pointer",fontSize:9,fontWeight:600,letterSpacing:.8,fontFamily:T.m,background:active?T.gBg:"transparent",color:active?T.g:T.txM,transition:"all .15s"}}>{children}</button>;
+const Section=({children})=><div style={{fontSize:10,fontWeight:700,letterSpacing:2.5,color:T.txM,fontFamily:T.m,textTransform:"uppercase",marginBottom:10,paddingBottom:6,borderBottom:`1px solid ${T.brd}`}}>{children}</div>;
+const Stat=({label,value,warn,danger,accent,sub})=><div><div style={{fontSize:9,color:T.txM,letterSpacing:.8,fontWeight:500,fontFamily:T.m,marginBottom:3,textTransform:"uppercase"}}>{label}</div><div style={{fontSize:13,fontWeight:600,fontFamily:T.m,color:danger?T.r:warn?T.a:accent?T.g:T.w,lineHeight:1}}>{value}</div>{sub&&<div style={{fontSize:9,color:T.txM,fontFamily:T.m,marginTop:2}}>{sub}</div>}</div>;
+const TH=({onClick,active,dir,children,w})=><th onClick={onClick} style={{padding:"10px 8px",textAlign:"right",fontSize:9,fontWeight:600,letterSpacing:1,color:active?T.g:T.txM,fontFamily:T.m,cursor:onClick?"pointer":"default",textTransform:"uppercase",whiteSpace:"nowrap",width:w,borderBottom:`1px solid ${T.brd}`,position:"sticky",top:0,background:T.bg2,zIndex:2,userSelect:"none"}}>{children}{active&&<span style={{opacity:.4,marginLeft:3}}>{dir===-1?"↓":"↑"}</span>}</th>;
 
-const SH = ({ children }) => <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2.5, color: C.textMuted, fontFamily: C.fontMono, textTransform: "uppercase", marginBottom: 10, paddingBottom: 6, borderBottom: `1px solid ${C.border}` }}>{children}</div>;
+/* SMART WALLET TRACKER */
+const SmartWalletTracker=()=>{const[walletData,setWalletData]=useState([]);const[loading,setLoading]=useState(false);const[customWallet,setCustomWallet]=useState("");const[wallets,setWallets]=useState(SMART_WALLETS);const[expanded,setExpanded]=useState(null);const[wTokens,setWTokens]=useState({});const[wTxns,setWTxns]=useState({});
+const track=useCallback(async()=>{setLoading(true);const res=[];for(const w of wallets){try{const sigs=await getRecentSignatures(w.addr,15);res.push({...w,recentTxns:sigs.length,lastActive:sigs[0]?.blockTime?new Date(sigs[0].blockTime*1000):null})}catch{res.push({...w,recentTxns:0,lastActive:null})}}setWalletData(res);setLoading(false)},[wallets]);
+useEffect(()=>{track()},[track]);
+const loadDetail=async(addr)=>{if(expanded===addr){setExpanded(null);return}setExpanded(addr);if(!wTokens[addr]){const bt=await birdWalletPortfolio(addr);if(bt.length>0){setWTokens(p=>({...p,[addr]:bt.filter(t=>t.uiAmount>0&&t.symbol!=="SOL").sort((a,b)=>(b.valueUsd||0)-(a.valueUsd||0)).slice(0,20).map(t=>({mint:t.address,symbol:t.symbol||"???",amount:t.uiAmount,valueUsd:t.valueUsd||0}))}))}else{const accs=await getTokenAccounts(addr);setWTokens(p=>({...p,[addr]:accs.map(a=>({mint:a.account.data.parsed.info.mint,symbol:"???",amount:parseFloat(a.account.data.parsed.info.tokenAmount.uiAmountString||"0"),valueUsd:0})).filter(a=>a.amount>0).sort((a,b)=>b.amount-a.amount).slice(0,20)}))}}if(!wTxns[addr]){const txns=await heliusParsedTxns(addr,10);setWTxns(p=>({...p,[addr]:txns.slice(0,10).map(tx=>({sig:tx.signature?.slice(0,8)||"?",type:tx.type||"UNKNOWN",desc:tx.description||"",time:tx.timestamp?new Date(tx.timestamp*1000):null,src:tx.source||""}))}))}}
+const addW=()=>{if(!customWallet.trim()||customWallet.length<32)return;setWallets(p=>[...p,{addr:customWallet.trim(),label:`Custom-${p.length+1}`,pnl:"?"}]);setCustomWallet("")};
+return<div><Section>Smart Wallet Tracker</Section><div style={{display:"flex",gap:6,marginBottom:10}}><Badge color={T.g}>HELIUS</Badge><Badge color={T.p}>BIRDEYE</Badge><span style={{fontSize:9,color:T.txM,fontFamily:T.m,alignSelf:"center",marginLeft:4}}>Parsed txns via Helius · Portfolio via Birdeye</span></div>
+<div style={{display:"flex",gap:8,marginBottom:14}}><input value={customWallet} onChange={e=>setCustomWallet(e.target.value)} placeholder="Paste wallet address to track..." style={{flex:1,padding:"7px 12px",borderRadius:4,background:T.bg2,border:`1px solid ${T.brd}`,color:T.tx,fontSize:11,fontFamily:T.m,outline:"none"}} onKeyDown={e=>e.key==="Enter"&&addW()} onFocus={e=>e.target.style.borderColor=T.g+"40"} onBlur={e=>e.target.style.borderColor=T.brd}/><button onClick={addW} style={{padding:"7px 16px",borderRadius:4,background:T.gBg,border:`1px solid ${T.g}25`,color:T.g,fontSize:9,fontWeight:700,letterSpacing:1,fontFamily:T.m,cursor:"pointer"}}>+ ADD</button><button onClick={track} style={{padding:"7px 16px",borderRadius:4,background:T.bg2,border:`1px solid ${T.brd}`,color:loading?T.txM:T.txS,fontSize:9,fontWeight:600,letterSpacing:1,fontFamily:T.m,cursor:loading?"default":"pointer"}}>{loading?"···":"REFRESH"}</button></div>
+<div style={{display:"flex",flexDirection:"column",gap:4}}>{(walletData.length?walletData:wallets).map((w,i)=><div key={w.addr}><div onClick={()=>loadDetail(w.addr)} style={{display:"grid",gridTemplateColumns:"80px 1fr 70px 100px 80px",alignItems:"center",gap:8,padding:"10px 12px",background:expanded===w.addr?T.gBg:i%2===0?"transparent":T.bg2+"30",borderRadius:4,cursor:"pointer",transition:"background .1s",border:expanded===w.addr?`1px solid ${T.g}20`:`1px solid transparent`}} onMouseEnter={e=>{if(expanded!==w.addr)e.currentTarget.style.background=T.sHover}} onMouseLeave={e=>{if(expanded!==w.addr)e.currentTarget.style.background=i%2===0?"transparent":T.bg2+"30"}}><span style={{fontSize:11,fontWeight:700,color:T.g,fontFamily:T.m}}>{w.label}</span><span style={{fontSize:10,color:T.txM,fontFamily:T.m}}>{short(w.addr)}</span><span style={{fontSize:10,color:T.txS,fontFamily:T.m}}>{w.pnl}</span><span style={{fontSize:10,color:w.recentTxns>5?T.g:T.txS,fontFamily:T.m}}>{w.recentTxns!=null?`${w.recentTxns} txns`:"—"}</span><span style={{fontSize:9,color:T.txM,fontFamily:T.m}}>{w.lastActive?fmtAge(w.lastActive.getTime())+" ago":"—"}</span></div>
+{expanded===w.addr&&<div style={{padding:"12px 12px 16px 20px",borderLeft:`2px solid ${T.g}20`,marginLeft:12,marginBottom:8}}><div style={{fontSize:9,color:T.g,fontFamily:T.m,letterSpacing:1.5,fontWeight:700,marginBottom:8}}>TOKEN HOLDINGS</div>{!wTokens[w.addr]?<span style={{fontSize:10,color:T.txM,fontFamily:T.m}}>Loading...</span>:wTokens[w.addr].length===0?<span style={{fontSize:10,color:T.txM,fontFamily:T.m}}>No tokens</span>:<div style={{display:"flex",flexDirection:"column",gap:2,marginBottom:16}}>{wTokens[w.addr].map((tk,j)=><div key={j} style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 70px",alignItems:"center",gap:6,padding:"4px 8px",borderRadius:3,background:j%2===0?"transparent":T.bg2+"20",fontSize:10,fontFamily:T.m}}><span style={{color:T.b,fontWeight:600}}>{tk.symbol}</span><span style={{color:T.txG,cursor:"pointer"}} onClick={e=>{e.stopPropagation();navigator.clipboard.writeText(tk.mint)}}>{short(tk.mint)}</span><span style={{color:T.txS,textAlign:"right"}}>{tk.amount>1e6?`${(tk.amount/1e6).toFixed(1)}M`:tk.amount>1e3?`${(tk.amount/1e3).toFixed(1)}K`:tk.amount.toFixed(2)}</span><span style={{color:tk.valueUsd>100?T.g:T.txM,textAlign:"right",fontWeight:600}}>{tk.valueUsd>0?fmt(tk.valueUsd):"—"}</span></div>)}</div>}
+<div style={{fontSize:9,color:T.p,fontFamily:T.m,letterSpacing:1.5,fontWeight:700,marginBottom:8}}>RECENT TRANSACTIONS</div>{!wTxns[w.addr]?<span style={{fontSize:10,color:T.txM,fontFamily:T.m}}>Loading...</span>:wTxns[w.addr].length===0?<span style={{fontSize:10,color:T.txM,fontFamily:T.m}}>No parsed txns</span>:<div style={{display:"flex",flexDirection:"column",gap:3}}>{wTxns[w.addr].map((tx,j)=><div key={j} style={{display:"grid",gridTemplateColumns:"70px 80px 1fr 60px",gap:6,padding:"4px 8px",borderRadius:3,background:j%2===0?"transparent":T.bg2+"20",fontSize:10,fontFamily:T.m}}><span style={{color:tx.type==="SWAP"?T.g:tx.type==="TRANSFER"?T.b:T.txS,fontWeight:600}}>{tx.type}</span><span style={{color:T.txM}}>{tx.src}</span><span style={{color:T.txS,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tx.desc||tx.sig+"..."}</span><span style={{color:T.txM,textAlign:"right"}}>{tx.time?fmtAge(tx.time.getTime()):"—"}</span></div>)}</div>}</div>}</div>)}</div></div>};
 
-/* ═══ DETAIL PANEL ═══ */
-const Detail = ({ token: t, onClose }) => {
-  if (!t) return null;
-  const lmr = t.mc > 0 ? t.liq / t.mc * 100 : 0;
-  const vmr = t.mc > 0 ? t.vol24h / t.mc * 100 : 0;
-  return (
-    <>
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 299, backdropFilter: "blur(3px)" }} />
-      <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: 420, background: C.bg1, borderLeft: `1px solid ${C.border}`, zIndex: 300, overflowY: "auto", display: "flex", flexDirection: "column" }}>
-        <div style={{ padding: "20px 24px 14px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 3 }}>
-                {t.imgUrl && <img src={t.imgUrl} alt="" style={{ width: 22, height: 22, borderRadius: 5 }} onError={e => e.target.style.display = "none"} />}
-                <span style={{ fontSize: 18, fontWeight: 700, color: C.white, fontFamily: C.fontSans }}>{t.name}</span>
-                <ChainPill chain={t.chain} />
-              </div>
-              <div style={{ fontSize: 10, color: C.textMuted, fontFamily: C.fontMono }}>{t.fullName}</div>
-              <div style={{ fontSize: 9, color: C.textGhost, fontFamily: C.fontMono, marginTop: 3, wordBreak: "break-all" }}>{t.address}</div>
-            </div>
-            <button onClick={onClose} style={{ background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 4, color: C.textSoft, cursor: "pointer", padding: "4px 10px", fontSize: 10, fontFamily: C.fontMono }}>✕</button>
-          </div>
-        </div>
-        <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 22, flex: 1 }}>
-          <div><SH>Key Metrics</SH><div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}><Stat label="Market Cap" value={fmt(t.mc)} /><Stat label="Liquidity" value={fmt(t.liq)} warn={t.liq < 10000} /><Stat label="Price" value={`$${t.price < 0.001 ? t.price.toExponential(2) : t.price.toFixed(6)}`} /><Stat label="FDV" value={fmt(t.fdv)} /><Stat label="Liq/MC" value={`${lmr.toFixed(1)}%`} warn={lmr < 5} danger={lmr < 2} accent={lmr > 15} /><Stat label="Vol/MC" value={`${vmr.toFixed(0)}%`} accent={vmr > 100} /></div></div>
-          <div><SH>Price Action</SH><div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}><Stat label="5m" value={<Delta val={t.pc5m} sz={13} />} /><Stat label="1h" value={<Delta val={t.pc1h} sz={13} />} /><Stat label="6h" value={<Delta val={t.pc6h} sz={13} />} /><Stat label="24h" value={<Delta val={t.pc24h} sz={13} />} /></div></div>
-          <div><SH>Volume</SH><div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}><Stat label="5m" value={fmt(t.vol5m)} /><Stat label="1h" value={fmt(t.vol1h)} /><Stat label="6h" value={fmt(t.vol6h)} /><Stat label="24h" value={fmt(t.vol24h)} /></div></div>
-          <div>
-            <SH>Order Flow</SH>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              {[["5 MIN", t.buys5m, t.sells5m, t.buyPct5m], ["1 HOUR", t.buys1h, t.sells1h, t.buyPct1h]].map(([lbl, b, s, bp]) => (
-                <div key={lbl}>
-                  <div style={{ fontSize: 9, color: C.textMuted, fontFamily: C.fontMono, letterSpacing: 0.8, marginBottom: 6 }}>{lbl}</div>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                    <span style={{ fontSize: 11, color: C.accent, fontFamily: C.fontMono, fontWeight: 600 }}>{b} buys</span>
-                    <span style={{ fontSize: 11, color: C.red, fontFamily: C.fontMono, fontWeight: 600 }}>{s} sells</span>
-                  </div>
-                  <div style={{ height: 4, borderRadius: 2, background: C.redBg, overflow: "hidden" }}>
-                    <div style={{ width: `${bp}%`, height: "100%", background: C.accent, opacity: 0.65, borderRadius: 2 }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div><SH>Info</SH><div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}><Stat label="Age" value={fmtAge(t.age)} /><Stat label="DEX" value={t.dex.toUpperCase()} /><Stat label="24h Txns" value={t.txns24h.toLocaleString()} /><Stat label="Boosts" value={t.boosts || 0} accent={t.boosts > 0} /><Stat label="Quote" value={t.quoteSymbol} /></div></div>
-          {(t.websites.length > 0 || t.socials.length > 0) && (
-            <div><SH>Links</SH><div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{t.websites.map((w, i) => <span key={`w${i}`} style={{ fontSize: 9, padding: "3px 8px", borderRadius: 3, background: C.bg3, border: `1px solid ${C.border}`, color: C.blue, fontFamily: C.fontMono }}>{w.label || "Website"}</span>)}{t.socials.map((s, i) => <span key={`s${i}`} style={{ fontSize: 9, padding: "3px 8px", borderRadius: 3, background: C.bg3, border: `1px solid ${C.border}`, color: C.purple, fontFamily: C.fontMono }}>{s.type || "Social"}</span>)}</div></div>
-          )}
-          <div style={{ marginTop: "auto", paddingTop: 14, borderTop: `1px solid ${C.border}`, display: "flex", gap: 8 }}>
-            {[{ l: "DEXSCREENER", u: `https://dexscreener.com/${t.chain}/${t.pairAddress}` }, { l: "AXIOM", u: `https://axiom.trade/t/${t.address}/` }, { l: "JUPITER", u: `https://jup.ag/swap/SOL-${t.address}` }].map(lk => (
-              <a key={lk.l} href={lk.u} target="_blank" rel="noopener noreferrer" style={{ flex: 1, padding: "10px 0", textAlign: "center", textDecoration: "none", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 4, color: C.textSoft, fontSize: 9, fontWeight: 700, letterSpacing: 1.5, fontFamily: C.fontMono, transition: "all 0.15s" }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = C.accent + "50"; e.currentTarget.style.color = C.accent; }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textSoft; }}
-              >{lk.l}</a>
-            ))}
-          </div>
-        </div>
-      </div>
-    </>
-  );
-};
+/* BUNDLE DETECTOR */
+const BundleDetector=()=>{const[mintAddr,setMintAddr]=useState("");const[result,setResult]=useState(null);const[loading,setLoading]=useState(false);
+const analyze=async()=>{if(!mintAddr.trim())return;setLoading(true);setResult(null);try{const[holders,supply,birdSec,birdOver]=await Promise.all([getTopHolders(mintAddr.trim()),getTokenSupply(mintAddr.trim()),birdTokenSecurity(mintAddr.trim()),birdTokenOverview(mintAddr.trim())]);const totalSupply=supply?parseFloat(supply.uiAmountString||supply.amount||"0"):0;const ha=holders.map(h=>{const amt=parseFloat(h.uiAmount||h.amount||"0");const pct=totalSupply>0?(amt/totalSupply*100):0;return{address:h.address,amount:amt,pct}}).sort((a,b)=>b.pct-a.pct);const top10=ha.slice(0,10).reduce((s,h)=>s+h.pct,0);const top5=ha.slice(0,5).reduce((s,h)=>s+h.pct,0);const top1=ha[0]?.pct||0;const clusters=[];for(let i=0;i<ha.length-1;i++){for(let j=i+1;j<ha.length;j++){if(Math.abs(ha[i].pct-ha[j].pct)<0.5&&ha[i].pct>2){const ex=clusters.find(c=>Math.abs(c.pct-ha[i].pct)<0.5);if(ex){ex.count++;ex.totalPct+=ha[j].pct}else clusters.push({pct:ha[i].pct,count:2,totalPct:ha[i].pct+ha[j].pct})}}}const risk=top1>20?"CRITICAL":top5>50?"HIGH":top10>60?"MEDIUM":clusters.length>0?"WATCH":"LOW";setResult({holders:ha,totalSupply,top1pct:top1,top5pct:top5,top10pct:top10,bundleRisk:risk,clusters,birdSec:birdSec||{},birdOver:birdOver||{}})}catch(e){setResult({error:e.message})}setLoading(false)};
+const rc={CRITICAL:T.r,HIGH:T.r,MEDIUM:T.a,WATCH:T.a,LOW:T.g};const r=result;
+return<div><Section>Bundle & Sniper Detector</Section><div style={{display:"flex",gap:6,marginBottom:10}}><Badge color={T.g}>HELIUS ON-CHAIN</Badge><Badge color={T.p}>BIRDEYE SECURITY</Badge></div>
+<div style={{display:"flex",gap:8,marginBottom:14}}><input value={mintAddr} onChange={e=>setMintAddr(e.target.value)} placeholder="Paste token mint address (CA)..." style={{flex:1,padding:"7px 12px",borderRadius:4,background:T.bg2,border:`1px solid ${T.brd}`,color:T.tx,fontSize:11,fontFamily:T.m,outline:"none"}} onKeyDown={e=>e.key==="Enter"&&analyze()} onFocus={e=>e.target.style.borderColor=T.g+"40"} onBlur={e=>e.target.style.borderColor=T.brd}/><button onClick={analyze} disabled={loading} style={{padding:"7px 20px",borderRadius:4,background:loading?T.bg2:T.gBg,border:`1px solid ${loading?T.brd:T.g+"25"}`,color:loading?T.txM:T.g,fontSize:9,fontWeight:700,letterSpacing:1,fontFamily:T.m,cursor:loading?"default":"pointer"}}>{loading?"SCANNING...":"ANALYZE"}</button></div>
+{r&&!r.error&&<div><div style={{padding:"14px 18px",borderRadius:6,marginBottom:14,background:`${rc[r.bundleRisk]}08`,border:`1px solid ${rc[r.bundleRisk]}20`}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div><div style={{fontSize:9,color:T.txM,fontFamily:T.m,letterSpacing:1,marginBottom:4}}>BUNDLE RISK</div><div style={{fontSize:22,fontWeight:800,color:rc[r.bundleRisk],fontFamily:T.m}}>{r.bundleRisk}</div></div><div style={{display:"flex",gap:20}}><Stat label="Top 1" value={`${r.top1pct.toFixed(1)}%`} danger={r.top1pct>20} warn={r.top1pct>10}/><Stat label="Top 5" value={`${r.top5pct.toFixed(1)}%`} danger={r.top5pct>50} warn={r.top5pct>30}/><Stat label="Top 10" value={`${r.top10pct.toFixed(1)}%`} danger={r.top10pct>60} warn={r.top10pct>40}/></div></div>
+{r.birdOver&&(r.birdOver.symbol||r.birdOver.mc)&&<div style={{display:"grid",gridTemplateColumns:"repeat(5, 1fr)",gap:14,paddingTop:12,borderTop:`1px solid ${rc[r.bundleRisk]}15`}}><Stat label="Name" value={r.birdOver.symbol||"?"}/><Stat label="MC" value={fmt(r.birdOver.mc||r.birdOver.marketCap||0)}/><Stat label="Liquidity" value={fmt(r.birdOver.liquidity||0)}/><Stat label="Holders" value={(r.birdOver.holder||0).toLocaleString()}/><Stat label="24h Vol" value={fmt(r.birdOver.v24hUSD||0)}/></div>}
+{r.birdSec&&Object.keys(r.birdSec).length>0&&<div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:14,marginTop:14,paddingTop:12,borderTop:`1px solid ${rc[r.bundleRisk]}15`}}>{r.birdSec.freezeAuthority!==undefined&&<Stat label="Freeze Auth" value={r.birdSec.freezeAuthority?"YES":"NO"} danger={!!r.birdSec.freezeAuthority}/>}{r.birdSec.mintAuthority!==undefined&&<Stat label="Mint Auth" value={r.birdSec.mintAuthority?"YES":"NO"} danger={!!r.birdSec.mintAuthority}/>}{r.birdSec.top10HolderPercent!==undefined&&<Stat label="Top10 (Bird)" value={`${(r.birdSec.top10HolderPercent*100).toFixed(1)}%`} danger={r.birdSec.top10HolderPercent>0.6} warn={r.birdSec.top10HolderPercent>0.4}/>}{r.birdSec.creatorPercentage!==undefined&&<Stat label="Creator %" value={`${(r.birdSec.creatorPercentage*100).toFixed(1)}%`} danger={r.birdSec.creatorPercentage>0.1} warn={r.birdSec.creatorPercentage>0.05}/>}{r.birdSec.ownerPercentage!==undefined&&<Stat label="Owner %" value={`${(r.birdSec.ownerPercentage*100).toFixed(1)}%`} danger={r.birdSec.ownerPercentage>0.15}/>}{r.birdSec.creationTime&&<Stat label="Created" value={fmtAge(r.birdSec.creationTime*1000)}/>}</div>}</div>
+{r.clusters.length>0&&<div style={{padding:"10px 14px",borderRadius:4,marginBottom:14,background:T.rBg,border:`1px solid ${T.r}15`}}><div style={{fontSize:9,color:T.r,fontFamily:T.m,letterSpacing:1,fontWeight:700,marginBottom:6}}>⚠ SUSPICIOUS CLUSTERS DETECTED</div>{r.clusters.map((c,i)=><div key={i} style={{fontSize:10,color:T.txS,fontFamily:T.m,padding:"2px 0"}}>{c.count} wallets each ~{c.pct.toFixed(1)}% — combined {c.totalPct.toFixed(1)}%</div>)}</div>}
+<div style={{fontSize:9,color:T.txM,fontFamily:T.m,letterSpacing:1,marginBottom:8}}>TOP HOLDERS (HELIUS)</div><div style={{display:"flex",flexDirection:"column",gap:2}}>{r.holders.slice(0,20).map((h,i)=><div key={i} style={{display:"grid",gridTemplateColumns:"28px 1fr 80px 60px",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:3,background:i%2===0?"transparent":T.bg2+"30"}}><span style={{fontSize:9,color:T.txM,fontFamily:T.m,fontWeight:600}}>#{i+1}</span><span style={{fontSize:10,color:h.pct>10?T.r:T.b,fontFamily:T.m,cursor:"pointer"}} onClick={()=>navigator.clipboard.writeText(h.address)}>{short(h.address)}</span><div style={{height:3,borderRadius:1,background:T.bg,overflow:"hidden"}}><div style={{width:`${Math.min(h.pct,100)}%`,height:"100%",borderRadius:1,background:h.pct>15?T.r:h.pct>5?T.a:T.g,opacity:.6}}/></div><span style={{fontSize:10,fontWeight:600,color:h.pct>15?T.r:h.pct>5?T.a:T.txS,fontFamily:T.m,textAlign:"right"}}>{h.pct.toFixed(2)}%</span></div>)}</div></div>}
+{r?.error&&<div style={{padding:16,borderRadius:4,background:T.rBg,border:`1px solid ${T.r}20`,color:T.r,fontSize:11,fontFamily:T.m}}>Error: {r.error}</div>}
+{!r&&!loading&&<div style={{padding:32,textAlign:"center",color:T.txM,fontSize:11,fontFamily:T.m,background:T.bg2,borderRadius:6,border:`1px solid ${T.brd}`}}>Paste a CA above. Pulls holders from Helius + security from Birdeye.</div>}</div>};
 
-/* ═══ MAIN ═══ */
-export default function SignalTerminal() {
-  const [pairs, setPairs] = useState([]);
-  const [boosted, setBoosted] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState(null);
-  const [chain, setChain] = useState("solana");
-  const [sortKey, setSortKey] = useState("vol5m");
-  const [sortDir, setSortDir] = useState(-1);
-  const [selected, setSelected] = useState(null);
-  const [search, setSearch] = useState("");
-  const [searchRes, setSearchRes] = useState(null);
-  const [searching, setSearching] = useState(false);
-  const [tab, setTab] = useState("new");
-  const [lastUp, setLastUp] = useState(null);
-  const stRef = useRef(null);
+/* TOKEN SCREENER */
+const TokenScreener=({pairs,boosted,loading:pL})=>{const[filters,setFilters]=useState({minLiq:5000,maxLiq:Infinity,minMc:0,maxMc:5000000,minVol5m:0,minBuyPct:50,maxAge:Infinity,onlyBoosted:false});const[sortKey,setSortKey]=useState("v5m");const[sortDir,setSortDir]=useState(-1);const boostSet=useMemo(()=>new Set(boosted.map(b=>b.tokenAddress)),[boosted]);
+const filtered=useMemo(()=>{let d=pairs.filter(t=>{if(t.liq<filters.minLiq)return false;if(filters.maxLiq!==Infinity&&t.liq>filters.maxLiq)return false;if(t.mc<filters.minMc)return false;if(filters.maxMc!==Infinity&&t.mc>filters.maxMc)return false;if(t.v5m<filters.minVol5m)return false;if(t.bp5<filters.minBuyPct)return false;if(filters.maxAge!==Infinity&&t.age&&(Date.now()-t.age)>filters.maxAge)return false;if(filters.onlyBoosted&&!boostSet.has(t.addr))return false;return true});d.sort((a,b)=>((b[sortKey]??0)-(a[sortKey]??0))*sortDir);return d},[pairs,filters,sortKey,sortDir,boostSet]);
+const doSort=(k)=>{if(sortKey===k)setSortDir(d=>d*-1);else{setSortKey(k);setSortDir(-1)}};const setF=(k,v)=>setFilters(p=>({...p,[k]:v}));
+const FI=({label,value,onChange,placeholder,w=64})=><div style={{display:"flex",flexDirection:"column",gap:3}}><span style={{fontSize:8,color:T.txM,fontFamily:T.m,letterSpacing:.8,textTransform:"uppercase"}}>{label}</span><input value={value===Infinity?"":value} onChange={e=>onChange(e.target.value===""?(label.includes("Max")?Infinity:0):Number(e.target.value))} placeholder={placeholder} style={{width:w,padding:"4px 6px",borderRadius:3,background:T.bg2,border:`1px solid ${T.brd}`,color:T.tx,fontSize:10,fontFamily:T.m,outline:"none"}} onFocus={e=>e.target.style.borderColor=T.g+"40"} onBlur={e=>e.target.style.borderColor=T.brd}/></div>;
+return<div><Section>Token Screener</Section><div style={{display:"flex",flexWrap:"wrap",gap:10,padding:"12px 14px",background:T.bg2,borderRadius:6,border:`1px solid ${T.brd}`,marginBottom:14,alignItems:"flex-end"}}><FI label="Min Liq ($)" value={filters.minLiq} onChange={v=>setF("minLiq",v)} placeholder="5000"/><FI label="Max Liq ($)" value={filters.maxLiq} onChange={v=>setF("maxLiq",v)} placeholder="∞"/><FI label="Min MC ($)" value={filters.minMc} onChange={v=>setF("minMc",v)} placeholder="0"/><FI label="Max MC ($)" value={filters.maxMc} onChange={v=>setF("maxMc",v)} placeholder="5000000"/><FI label="Min Vol 5m" value={filters.minVol5m} onChange={v=>setF("minVol5m",v)} placeholder="0"/><FI label="Min Buy %" value={filters.minBuyPct} onChange={v=>setF("minBuyPct",v)} placeholder="50" w={48}/>
+<div style={{display:"flex",flexDirection:"column",gap:3}}><span style={{fontSize:8,color:T.txM,fontFamily:T.m,letterSpacing:.8}}>MAX AGE</span><div style={{display:"flex",gap:2}}>{[["1h",3600000],["6h",21600000],["24h",86400000],["∞",Infinity]].map(([l,v])=><button key={l} onClick={()=>setF("maxAge",v)} style={{padding:"4px 8px",borderRadius:2,border:"none",cursor:"pointer",fontSize:9,fontWeight:600,fontFamily:T.m,background:filters.maxAge===v?T.gBg:"transparent",color:filters.maxAge===v?T.g:T.txM}}>{l}</button>)}</div></div>
+<button onClick={()=>setF("onlyBoosted",!filters.onlyBoosted)} style={{padding:"4px 10px",borderRadius:3,border:`1px solid ${filters.onlyBoosted?T.g+"30":T.brd}`,background:filters.onlyBoosted?T.gBg:"transparent",color:filters.onlyBoosted?T.g:T.txM,fontSize:9,fontWeight:600,fontFamily:T.m,cursor:"pointer",alignSelf:"flex-end"}}>BOOSTED ONLY</button><div style={{flex:1}}/><span style={{fontSize:9,color:T.g,fontFamily:T.m,fontWeight:600,alignSelf:"flex-end"}}>{filtered.length} matches</span></div>
+<div style={{overflowX:"auto",border:`1px solid ${T.brd}`,borderRadius:6}}><table><thead><tr><th style={{padding:"10px 8px 10px 14px",textAlign:"left",fontSize:9,fontWeight:600,letterSpacing:1,color:T.txM,fontFamily:T.m,borderBottom:`1px solid ${T.brd}`,position:"sticky",top:0,background:T.bg2,zIndex:2,minWidth:170}}>TOKEN</th><TH onClick={()=>doSort("mc")} active={sortKey==="mc"} dir={sortDir} w={76}>MC</TH><TH onClick={()=>doSort("liq")} active={sortKey==="liq"} dir={sortDir} w={68}>LIQ</TH><TH onClick={()=>doSort("v5m")} active={sortKey==="v5m"} dir={sortDir} w={64}>V 5m</TH><TH onClick={()=>doSort("v1h")} active={sortKey==="v1h"} dir={sortDir} w={64}>V 1h</TH><TH onClick={()=>doSort("v24h")} active={sortKey==="v24h"} dir={sortDir} w={68}>V 24h</TH><TH onClick={()=>doSort("pc5m")} active={sortKey==="pc5m"} dir={sortDir} w={58}>Δ5m</TH><TH onClick={()=>doSort("pc1h")} active={sortKey==="pc1h"} dir={sortDir} w={58}>Δ1h</TH><th style={{padding:"10px 8px",textAlign:"right",fontSize:9,fontWeight:600,letterSpacing:1,color:T.txM,fontFamily:T.m,borderBottom:`1px solid ${T.brd}`,position:"sticky",top:0,background:T.bg2,zIndex:2,width:66}}>B/S</th><TH onClick={()=>doSort("tx24")} active={sortKey==="tx24"} dir={sortDir} w={56}>TXN</TH><th style={{padding:"10px 8px",fontSize:9,fontWeight:600,letterSpacing:1,color:T.txM,fontFamily:T.m,borderBottom:`1px solid ${T.brd}`,position:"sticky",top:0,background:T.bg2,zIndex:2,width:44}}>AGE</th></tr></thead>
+<tbody>{filtered.map((t,i)=><tr key={t.id+i} style={{cursor:"pointer",background:i%2===0?"transparent":T.bg2+"30"}} onMouseEnter={e=>e.currentTarget.style.background=T.sHover} onMouseLeave={e=>e.currentTarget.style.background=i%2===0?"transparent":T.bg2+"30"}><td style={{padding:"8px 8px 8px 14px"}}><div style={{display:"flex",alignItems:"center",gap:7}}>{t.img&&<img src={t.img} alt="" style={{width:18,height:18,borderRadius:4}} onError={e=>e.target.style.display="none"}/>}<div><div style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontSize:11,fontWeight:600,color:T.w,fontFamily:T.s}}>{t.name}</span><CP chain={t.chain}/>{boostSet.has(t.addr)&&<Badge color={T.g}>BOOST</Badge>}</div><div style={{fontSize:9,color:T.txG,fontFamily:T.m}}>{short(t.addr)}</div></div></div></td><td style={{padding:"8px",fontSize:11,fontWeight:600,color:T.tx,fontFamily:T.m}}>{fmt(t.mc)}</td><td style={{padding:"8px",fontSize:11,fontWeight:500,color:t.liq<10000?T.r:T.txS,fontFamily:T.m}}>{fmt(t.liq)}</td><td style={{padding:"8px",fontSize:11,fontWeight:500,color:t.v5m>0?T.tx:T.txM,fontFamily:T.m}}>{fmt(t.v5m)}</td><td style={{padding:"8px",fontSize:11,fontWeight:500,color:t.v1h>0?T.tx:T.txM,fontFamily:T.m}}>{fmt(t.v1h)}</td><td style={{padding:"8px",fontSize:11,fontWeight:500,color:T.tx,fontFamily:T.m}}>{fmt(t.v24h)}</td><td style={{padding:"8px"}}><Dv v={t.pc5m}/></td><td style={{padding:"8px"}}><Dv v={t.pc1h}/></td><td style={{padding:"8px"}}><BSBar p={t.bp5}/></td><td style={{padding:"8px",fontSize:11,fontWeight:500,color:T.txS,fontFamily:T.m}}>{t.tx24>0?t.tx24.toLocaleString():"—"}</td><td style={{padding:"8px",fontSize:10,color:T.txM,fontFamily:T.m}}>{fmtAge(t.age)}</td></tr>)}</tbody></table>
+{!filtered.length&&<div style={{padding:40,textAlign:"center",color:T.txM,fontSize:11,fontFamily:T.m}}>No tokens match. Loosen filters.</div>}</div></div>};
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null);
-    try {
-      const [pd, bd] = await Promise.all([fetchNewPairs(chain), fetchBoosted()]);
-      setPairs(pd.map(norm).filter(p => p.mc > 0 || p.liq > 0));
-      setBoosted(bd); setLastUp(new Date());
-    } catch (e) { setErr(e.message); }
-    finally { setLoading(false); }
-  }, [chain]);
-
-  useEffect(() => { load(); }, [load]);
-  useEffect(() => { const iv = setInterval(load, 30000); return () => clearInterval(iv); }, [load]);
-
-  useEffect(() => {
-    if (!search.trim()) { setSearchRes(null); return; }
-    clearTimeout(stRef.current);
-    stRef.current = setTimeout(async () => {
-      setSearching(true);
-      setSearchRes((await searchTokens(search)).map(norm));
-      setSearching(false);
-    }, 500);
-    return () => clearTimeout(stRef.current);
-  }, [search]);
-
-  const data = useMemo(() => {
-    if (searchRes) return searchRes;
-    let d = [...pairs];
-    if (tab === "gainers") d = d.filter(p => p.pc5m > 0).sort((a, b) => b.pc5m - a.pc5m);
-    else if (tab === "volume") d.sort((a, b) => b.vol24h - a.vol24h);
-    else d.sort((a, b) => ((b[sortKey] ?? 0) - (a[sortKey] ?? 0)) * sortDir);
-    return d;
-  }, [pairs, searchRes, tab, sortKey, sortDir]);
-
-  const boostSet = useMemo(() => new Set(boosted.map(b => b.tokenAddress)), [boosted]);
-
-  const doSort = (k) => { if (sortKey === k) setSortDir(d => d * -1); else { setSortKey(k); setSortDir(-1); } };
-
-  const TH = ({ k, children, w }) => (
-    <th onClick={() => doSort(k)} style={{ padding: "10px 8px", textAlign: "right", fontSize: 9, fontWeight: 600, letterSpacing: 1, color: sortKey === k ? C.accent : C.textMuted, fontFamily: C.fontMono, cursor: "pointer", textTransform: "uppercase", whiteSpace: "nowrap", width: w, borderBottom: `1px solid ${C.border}`, position: "sticky", top: 0, background: C.bg2, zIndex: 2, userSelect: "none" }}>
-      {children}{sortKey === k && <span style={{ opacity: 0.4, marginLeft: 3 }}>{sortDir === -1 ? "↓" : "↑"}</span>}
-    </th>
-  );
-
-  return (
-    <div style={{ minHeight: "100vh", background: C.bg0, color: C.text, fontFamily: C.fontSans }}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
-        @font-face{font-family:'Geist Mono';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-mono/GeistMono-Regular.woff2') format('woff2');font-weight:400}
-        @font-face{font-family:'Geist Mono';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-mono/GeistMono-Medium.woff2') format('woff2');font-weight:500}
-        @font-face{font-family:'Geist Mono';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-mono/GeistMono-SemiBold.woff2') format('woff2');font-weight:600}
-        @font-face{font-family:'Geist Mono';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-mono/GeistMono-Bold.woff2') format('woff2');font-weight:700}
-        @font-face{font-family:'Geist';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-sans/Geist-Regular.woff2') format('woff2');font-weight:400}
-        @font-face{font-family:'Geist';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-sans/Geist-Medium.woff2') format('woff2');font-weight:500}
-        @font-face{font-family:'Geist';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-sans/Geist-SemiBold.woff2') format('woff2');font-weight:600}
-        @font-face{font-family:'Geist';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-sans/Geist-Bold.woff2') format('woff2');font-weight:700}
-        *{box-sizing:border-box;margin:0;padding:0}body{background:${C.bg0}}
-        *::-webkit-scrollbar{width:3px;height:3px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:${C.border};border-radius:2px}
-        @keyframes fadeUp{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
-        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-        table{border-collapse:collapse;width:100%}th,td{text-align:right}th:first-child,td:first-child{text-align:left}
-      `}</style>
-
-      {/* Grain */}
-      <div style={{ position: "fixed", inset: 0, pointerEvents: "none", opacity: 0.015, backgroundImage: `radial-gradient(circle at 1px 1px, ${C.textMuted} 1px, transparent 0)`, backgroundSize: "24px 24px" }} />
-
-      {/* Header */}
-      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 24px", borderBottom: `1px solid ${C.border}`, background: C.bg1, position: "sticky", top: 0, zIndex: 100 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 4, height: 18, borderRadius: 1, background: C.accent }} />
-            <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: 3.5, color: C.white, fontFamily: C.fontMono }}>SIGNAL</span>
-          </div>
-          <span style={{ width: 1, height: 14, background: C.border }} />
-          <div style={{ position: "relative" }}>
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search token or address..."
-              style={{ width: 260, padding: "7px 12px 7px 28px", borderRadius: 4, background: C.bg2, border: `1px solid ${C.border}`, color: C.text, fontSize: 11, fontFamily: C.fontMono, outline: "none" }}
-              onFocus={e => e.target.style.borderColor = C.accent + "40"} onBlur={e => e.target.style.borderColor = C.border} />
-            <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 11, color: C.textMuted }}>⌕</span>
-            {searching && <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", fontSize: 9, color: C.accent, fontFamily: C.fontMono, animation: "pulse 1s infinite" }}>···</span>}
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          {lastUp && <span style={{ fontSize: 9, color: C.textMuted, fontFamily: C.fontMono }}>{lastUp.toLocaleTimeString("en-US", { hour12: false })}</span>}
-          <button onClick={load} disabled={loading} style={{ padding: "5px 14px", borderRadius: 4, border: `1px solid ${C.border}`, background: C.bg2, color: loading ? C.textMuted : C.textSoft, cursor: loading ? "default" : "pointer", fontSize: 9, fontWeight: 600, letterSpacing: 1, fontFamily: C.fontMono }}
-            onMouseEnter={e => { if (!loading) { e.currentTarget.style.borderColor = C.accent + "40"; e.currentTarget.style.color = C.accent; } }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = loading ? C.textMuted : C.textSoft; }}
-          >{loading ? "···" : "REFRESH"}</button>
-          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <span style={{ width: 5, height: 5, borderRadius: "50%", background: err ? C.red : C.accent, animation: "pulse 2.5s ease-in-out infinite" }} />
-            <span style={{ fontSize: 9, color: err ? C.red : C.accent, fontFamily: C.fontMono, fontWeight: 500 }}>{err ? "ERR" : "LIVE"}</span>
-          </div>
-        </div>
-      </header>
-
-      {/* Controls */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 24px", borderBottom: `1px solid ${C.border}` }}>
-        <div style={{ display: "flex", gap: 2, background: C.bg2, borderRadius: 4, padding: 2, border: `1px solid ${C.border}` }}>
-          {Object.entries(CHAINS).map(([k, v]) => (
-            <button key={k} onClick={() => { setChain(k); setSearch(""); setSearchRes(null); }} style={{ padding: "5px 12px", borderRadius: 3, border: "none", cursor: "pointer", fontSize: 9, fontWeight: 600, letterSpacing: 0.8, fontFamily: C.fontMono, background: chain === k ? C.accentBg : "transparent", color: chain === k ? C.accent : C.textMuted }}>{v.label}</button>
-          ))}
-        </div>
-        <span style={{ width: 1, height: 14, background: C.border }} />
-        <div style={{ display: "flex", gap: 2 }}>
-          {[["new", "NEW PAIRS"], ["gainers", "5m GAINERS"], ["volume", "VOLUME"]].map(([id, l]) => (
-            <button key={id} onClick={() => { setTab(id); setSearch(""); setSearchRes(null); }} style={{ padding: "5px 12px", borderRadius: 3, border: "none", cursor: "pointer", fontSize: 9, fontWeight: 600, letterSpacing: 1, fontFamily: C.fontMono, background: tab === id ? C.surface : "transparent", color: tab === id ? C.white : C.textMuted }}>{l}</button>
-          ))}
-        </div>
-        <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 9, color: C.textMuted, fontFamily: C.fontMono }}>{data.length} pairs</span>
-      </div>
-
-      {/* Table */}
-      <div style={{ padding: "0 24px 80px" }}>
-        {loading && !pairs.length ? (
-          <div style={{ padding: 60, textAlign: "center", color: C.textMuted, fontSize: 11, fontFamily: C.fontMono, animation: "pulse 1.5s infinite" }}>Loading data...</div>
-        ) : err && !pairs.length ? (
-          <div style={{ padding: 60, textAlign: "center", color: C.red, fontSize: 11, fontFamily: C.fontMono }}>Failed: {err}<br /><br /><button onClick={load} style={{ padding: "8px 20px", background: C.redBg, border: `1px solid ${C.red}30`, borderRadius: 4, color: C.red, cursor: "pointer", fontFamily: C.fontMono, fontSize: 10 }}>RETRY</button></div>
-        ) : (
-          <div style={{ overflowX: "auto", border: `1px solid ${C.border}`, borderTop: "none", borderRadius: "0 0 6px 6px" }}>
-            <table>
-              <thead>
-                <tr>
-                  <th style={{ padding: "10px 8px 10px 14px", textAlign: "left", fontSize: 9, fontWeight: 600, letterSpacing: 1, color: C.textMuted, fontFamily: C.fontMono, borderBottom: `1px solid ${C.border}`, position: "sticky", top: 0, background: C.bg2, zIndex: 2, minWidth: 180 }}>TOKEN</th>
-                  <TH k="mc" w={80}>MC</TH>
-                  <TH k="liq" w={72}>LIQ</TH>
-                  <TH k="vol5m" w={68}>VOL 5m</TH>
-                  <TH k="vol1h" w={68}>VOL 1h</TH>
-                  <TH k="vol24h" w={72}>VOL 24h</TH>
-                  <TH k="pc5m" w={62}>Δ5m</TH>
-                  <TH k="pc1h" w={62}>Δ1h</TH>
-                  <TH k="pc24h" w={62}>Δ24h</TH>
-                  <th style={{ padding: "10px 8px", textAlign: "right", fontSize: 9, fontWeight: 600, letterSpacing: 1, color: C.textMuted, fontFamily: C.fontMono, borderBottom: `1px solid ${C.border}`, position: "sticky", top: 0, background: C.bg2, zIndex: 2, width: 70 }}>B/S 5m</th>
-                  <TH k="txns24h" w={64}>TXN</TH>
-                  <th style={{ padding: "10px 8px", fontSize: 9, fontWeight: 600, letterSpacing: 1, color: C.textMuted, fontFamily: C.fontMono, borderBottom: `1px solid ${C.border}`, position: "sticky", top: 0, background: C.bg2, zIndex: 2, width: 48 }}>AGE</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.map((t, i) => (
-                  <tr key={t.id + i} onClick={() => setSelected(t)} style={{ cursor: "pointer", transition: "background 0.1s", background: i % 2 === 0 ? "transparent" : C.bg2 + "30", animation: `fadeUp 0.12s ease ${Math.min(i * 0.015, 0.3)}s both` }}
-                    onMouseEnter={e => e.currentTarget.style.background = C.surfaceHover}
-                    onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? "transparent" : C.bg2 + "30"}>
-                    <td style={{ padding: "9px 8px 9px 14px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        {t.imgUrl && <img src={t.imgUrl} alt="" style={{ width: 20, height: 20, borderRadius: 4, flexShrink: 0 }} onError={e => e.target.style.display = "none"} />}
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: C.white, fontFamily: C.fontSans }}>{t.name}</span>
-                            <ChainPill chain={t.chain} />
-                            {boostSet.has(t.address) && <span style={{ fontSize: 7, padding: "1px 4px", borderRadius: 2, background: C.accentBg, color: C.accent, fontFamily: C.fontMono, fontWeight: 700, border: `1px solid ${C.accent}20` }}>BOOST</span>}
-                          </div>
-                          <div style={{ fontSize: 9, color: C.textGhost, fontFamily: C.fontMono, marginTop: 1 }}>{t.address.slice(0, 6)}…{t.address.slice(-4)}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td style={{ padding: "9px 8px", fontSize: 11, fontWeight: 600, color: C.text, fontFamily: C.fontMono }}>{fmt(t.mc)}</td>
-                    <td style={{ padding: "9px 8px", fontSize: 11, fontWeight: 500, color: t.liq < 10000 ? C.red : C.textSoft, fontFamily: C.fontMono }}>{fmt(t.liq)}</td>
-                    <td style={{ padding: "9px 8px", fontSize: 11, fontWeight: 500, color: t.vol5m > 0 ? C.text : C.textMuted, fontFamily: C.fontMono }}>{fmt(t.vol5m)}</td>
-                    <td style={{ padding: "9px 8px", fontSize: 11, fontWeight: 500, color: t.vol1h > 0 ? C.text : C.textMuted, fontFamily: C.fontMono }}>{fmt(t.vol1h)}</td>
-                    <td style={{ padding: "9px 8px", fontSize: 11, fontWeight: 500, color: C.text, fontFamily: C.fontMono }}>{fmt(t.vol24h)}</td>
-                    <td style={{ padding: "9px 8px" }}><Delta val={t.pc5m} /></td>
-                    <td style={{ padding: "9px 8px" }}><Delta val={t.pc1h} /></td>
-                    <td style={{ padding: "9px 8px" }}><Delta val={t.pc24h} /></td>
-                    <td style={{ padding: "9px 8px" }}><BSBar pct={t.buyPct5m} /></td>
-                    <td style={{ padding: "9px 8px", fontSize: 11, fontWeight: 500, color: C.textSoft, fontFamily: C.fontMono }}>{t.txns24h > 0 ? t.txns24h.toLocaleString() : "—"}</td>
-                    <td style={{ padding: "9px 8px", fontSize: 10, color: C.textMuted, fontFamily: C.fontMono }}>{fmtAge(t.age)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {!data.length && !loading && <div style={{ padding: 48, textAlign: "center", color: C.textMuted, fontSize: 11, fontFamily: C.fontMono }}>{search ? "No results" : "No pairs"}</div>}
-          </div>
-        )}
-      </div>
-
-      {/* Footer */}
-      <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, padding: "8px 24px", borderTop: `1px solid ${C.border}`, background: C.bg1, display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 50 }}>
-        <div style={{ display: "flex", gap: 16 }}>
-          {[["DEXSCREENER", "https://dexscreener.com"], ["AXIOM", "https://axiom.trade"], ["JUPITER", "https://jup.ag"]].map(([l, u]) => (
-            <a key={l} href={u} target="_blank" rel="noopener noreferrer" style={{ fontSize: 9, fontWeight: 600, letterSpacing: 1.5, color: C.textMuted, fontFamily: C.fontMono, textDecoration: "none" }}
-              onMouseEnter={e => e.currentTarget.style.color = C.accent} onMouseLeave={e => e.currentTarget.style.color = C.textMuted}>{l}</a>
-          ))}
-        </div>
-        <div style={{ fontSize: 9, color: C.textGhost, fontFamily: C.fontMono, display: "flex", alignItems: "center", gap: 8 }}>
-          DEXSCREENER API
-          <span style={{ width: 4, height: 4, borderRadius: "50%", background: C.accent, animation: "pulse 2s infinite" }} />
-        </div>
-      </div>
-
-      <Detail token={selected} onClose={() => setSelected(null)} />
-    </div>
-  );
-}
+/* MAIN */
+export default function App(){const[tab,setTab]=useState("screener");const[chain,setChain]=useState("solana");const[pairs,setPairs]=useState([]);const[boosted,setBoosted]=useState([]);const[loading,setLoading]=useState(true);const[lastUp,setLastUp]=useState(null);
+const load=useCallback(async()=>{setLoading(true);try{const[pd,bd]=await Promise.all([getNewPairs(chain),getBoosted()]);setPairs(pd.map(norm).filter(p=>p.mc>0||p.liq>0));setBoosted(bd);setLastUp(new Date())}catch(e){console.error(e)}setLoading(false)},[chain]);
+useEffect(()=>{load()},[load]);useEffect(()=>{const iv=setInterval(load,30000);return()=>clearInterval(iv)},[load]);
+return<div style={{minHeight:"100vh",background:T.bg,color:T.tx,fontFamily:T.s}}><style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');@font-face{font-family:'Geist Mono';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-mono/GeistMono-Regular.woff2') format('woff2');font-weight:400}@font-face{font-family:'Geist Mono';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-mono/GeistMono-Medium.woff2') format('woff2');font-weight:500}@font-face{font-family:'Geist Mono';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-mono/GeistMono-SemiBold.woff2') format('woff2');font-weight:600}@font-face{font-family:'Geist Mono';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-mono/GeistMono-Bold.woff2') format('woff2');font-weight:700}@font-face{font-family:'Geist';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-sans/Geist-Regular.woff2') format('woff2');font-weight:400}@font-face{font-family:'Geist';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-sans/Geist-Medium.woff2') format('woff2');font-weight:500}@font-face{font-family:'Geist';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-sans/Geist-SemiBold.woff2') format('woff2');font-weight:600}@font-face{font-family:'Geist';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-sans/Geist-Bold.woff2') format('woff2');font-weight:700}*{box-sizing:border-box;margin:0;padding:0}body{background:${T.bg}}*::-webkit-scrollbar{width:3px;height:3px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:${T.brd};border-radius:2px}@keyframes fadeUp{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}table{border-collapse:collapse;width:100%}th,td{text-align:right}th:first-child,td:first-child{text-align:left}`}</style>
+<div style={{position:"fixed",inset:0,pointerEvents:"none",opacity:.012,backgroundImage:`radial-gradient(circle at 1px 1px, ${T.txM} 1px, transparent 0)`,backgroundSize:"24px 24px"}}/>
+<header style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 24px",borderBottom:`1px solid ${T.brd}`,background:T.bg1,position:"sticky",top:0,zIndex:100}}><div style={{display:"flex",alignItems:"center",gap:14}}><div style={{display:"flex",alignItems:"center",gap:8}}><div style={{width:4,height:18,borderRadius:1,background:T.g}}/><span style={{fontSize:13,fontWeight:700,letterSpacing:3.5,color:T.w,fontFamily:T.m}}>SIGNAL</span><span style={{fontSize:9,color:T.txM,fontFamily:T.m,letterSpacing:1}}>v3</span></div><span style={{width:1,height:14,background:T.brd}}/><div style={{display:"flex",gap:4}}><Badge color={T.g}>HELIUS</Badge><Badge color={T.p}>BIRDEYE</Badge><Badge color={T.b}>DEXSCREENER</Badge></div></div><div style={{display:"flex",alignItems:"center",gap:12}}>{lastUp&&<span style={{fontSize:9,color:T.txM,fontFamily:T.m}}>{lastUp.toLocaleTimeString("en-US",{hour12:false})}</span>}<div style={{display:"flex",alignItems:"center",gap:5}}><span style={{width:5,height:5,borderRadius:"50%",background:T.g,animation:"pulse 2.5s ease-in-out infinite"}}/><span style={{fontSize:9,color:T.g,fontFamily:T.m,fontWeight:500}}>LIVE</span></div></div></header>
+<div style={{display:"flex",alignItems:"center",gap:12,padding:"8px 24px",borderBottom:`1px solid ${T.brd}`}}><div style={{display:"flex",gap:2,background:T.bg2,borderRadius:4,padding:2,border:`1px solid ${T.brd}`}}>{Object.entries(CHAINS).map(([k,v])=><Pill key={k} active={chain===k} onClick={()=>setChain(k)}>{v.l}</Pill>)}</div><span style={{width:1,height:14,background:T.brd}}/><div style={{display:"flex",gap:2}}>{[["screener","SCREENER"],["wallets","SMART WALLETS"],["bundles","BUNDLE CHECK"]].map(([id,l])=><button key={id} onClick={()=>setTab(id)} style={{padding:"5px 14px",borderRadius:3,border:"none",cursor:"pointer",fontSize:9,fontWeight:600,letterSpacing:1,fontFamily:T.m,background:tab===id?T.surface:"transparent",color:tab===id?T.w:T.txM,transition:"all .15s"}}>{l}</button>)}</div><div style={{flex:1}}/><button onClick={load} disabled={loading} style={{padding:"5px 12px",borderRadius:4,border:`1px solid ${T.brd}`,background:"transparent",color:loading?T.txM:T.txS,fontSize:9,fontWeight:600,fontFamily:T.m,cursor:loading?"default":"pointer",letterSpacing:1}}>{loading?"···":"REFRESH"}</button></div>
+<div style={{padding:"16px 24px 100px"}}>{tab==="screener"&&<TokenScreener pairs={pairs} boosted={boosted} loading={loading}/>}{tab==="wallets"&&<SmartWalletTracker/>}{tab==="bundles"&&<BundleDetector/>}</div>
+<div style={{position:"fixed",bottom:0,left:0,right:0,padding:"8px 24px",borderTop:`1px solid ${T.brd}`,background:T.bg1,display:"flex",justifyContent:"space-between",alignItems:"center",zIndex:50}}><div style={{display:"flex",gap:16}}>{[["DEXSCREENER","https://dexscreener.com"],["AXIOM","https://axiom.trade"],["JUPITER","https://jup.ag"]].map(([l,u])=><a key={l} href={u} target="_blank" rel="noopener noreferrer" style={{fontSize:9,fontWeight:600,letterSpacing:1.5,color:T.txM,fontFamily:T.m,textDecoration:"none"}} onMouseEnter={e=>e.currentTarget.style.color=T.g} onMouseLeave={e=>e.currentTarget.style.color=T.txM}>{l}</a>)}</div><div style={{fontSize:9,color:T.txG,fontFamily:T.m,display:"flex",alignItems:"center",gap:8}}>HELIUS + BIRDEYE + DEXSCREENER<span style={{width:4,height:4,borderRadius:"50%",background:T.g,animation:"pulse 2s infinite"}}/></div></div></div>}
