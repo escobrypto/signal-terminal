@@ -1,25 +1,46 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 
-const HELIUS_KEY = "efb053d6-f7c7-4c90-9bc5-0ce3af9c59df";
-const BIRDEYE_KEY = "94ba9de0953642878038f5a7eccc1114";
-const HELIUS_RPC = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_KEY}`;
-const HELIUS_API = "https://api.helius.xyz/v0";
-const BIRDEYE = "https://public-api.birdeye.so";
-const birdH = { accept:"application/json", "x-chain":"solana", "X-API-KEY":BIRDEYE_KEY };
+const HK = "efb053d6-f7c7-4c90-9bc5-0ce3af9c59df";
+const BK = "94ba9de0953642878038f5a7eccc1114";
+const HRPC = `https://mainnet.helius-rpc.com/?api-key=${HK}`;
+const HAPI = "https://api.helius.xyz/v0";
+const BIRD = "https://public-api.birdeye.so";
+const DEX = "https://api.dexscreener.com";
+const bH = { accept:"application/json","x-chain":"solana","X-API-KEY":BK };
 
-const T={bg:"#060709",bg1:"#0a0b0f",bg2:"#0e0f14",bg3:"#13141b",s:"#1a1b24",sH:"#1f2030",brd:"#1a1b28",tx:"#c8cce0",txS:"#7d82a0",txM:"#484c68",txG:"#2e3148",g:"#10b981",gBg:"#10b98108",gBrd:"#10b98118",r:"#ef4444",rBg:"#ef444408",a:"#f59e0b",b:"#3b82f6",p:"#8b5cf6",w:"#eaecff",mono:"'Geist Mono','JetBrains Mono',monospace",sans:"'Geist','DM Sans',-apple-system,sans-serif"};
+const T={bg:"#060709",bg1:"#0a0b0f",bg2:"#0e0f14",s:"#1a1b24",sH:"#1f2030",brd:"#1a1b28",tx:"#c8cce0",txS:"#7d82a0",txM:"#484c68",txG:"#2e3148",g:"#10b981",gBg:"#10b98108",gBrd:"#10b98118",r:"#ef4444",rBg:"#ef444408",a:"#f59e0b",b:"#3b82f6",p:"#8b5cf6",w:"#eaecff",mono:"'Geist Mono','JetBrains Mono',monospace",sans:"'Geist','DM Sans',-apple-system,sans-serif"};
 
 const short=(a,n=4)=>a?`${a.slice(0,n)}...${a.slice(-n)}`:"—";
-const fmt=(n)=>{if(!n&&n!==0)return"—";if(n>=1e9)return`$${(n/1e9).toFixed(1)}B`;if(n>=1e6)return`$${(n/1e6).toFixed(2)}M`;if(n>=1e3)return`$${(n/1e3).toFixed(1)}K`;return`$${n.toFixed(0)}`};
+const fmt=(n)=>{if(!n&&n!==0)return"—";if(Math.abs(n)>=1e9)return`$${(n/1e9).toFixed(1)}B`;if(Math.abs(n)>=1e6)return`$${(n/1e6).toFixed(2)}M`;if(Math.abs(n)>=1e3)return`$${(n/1e3).toFixed(1)}K`;return`$${n.toFixed(0)}`};
 const fmtAge=(ts)=>{if(!ts)return"—";const s=Math.floor((Date.now()-ts)/1000);if(s<60)return`${s}s`;const m=Math.floor(s/60);if(m<60)return`${m}m`;const h=Math.floor(m/60);if(h<24)return`${h}h`;return`${Math.floor(h/24)}d`};
-const cp=(t)=>navigator.clipboard.writeText(t);
+const cp=t=>navigator.clipboard.writeText(t);
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
 
 /* ═══ API ═══ */
-async function heliusSwaps(addr,limit=20){try{const r=await fetch(`${HELIUS_API}/addresses/${addr}/transactions?api-key=${HELIUS_KEY}&limit=${limit}&type=SWAP`);return r.ok?await r.json():[]}catch{return[]}}
-async function heliusAllTxns(addr,limit=15){try{const r=await fetch(`${HELIUS_API}/addresses/${addr}/transactions?api-key=${HELIUS_KEY}&limit=${limit}`);return r.ok?await r.json():[]}catch{return[]}}
-async function birdPortfolio(w){try{const r=await fetch(`${BIRDEYE}/v1/wallet/token_list?wallet=${w}`,{headers:birdH});const d=await r.json();return d.data?.items||[]}catch{return[]}}
-async function birdOverview(addr){try{const r=await fetch(`${BIRDEYE}/defi/token_overview?address=${addr}`,{headers:birdH});const d=await r.json();return d.data||null}catch{return null}}
+async function hRpc(method,params){try{const r=await fetch(HRPC,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method,params})});const d=await r.json();return d.result||null}catch{return null}}
+async function hParsed(addr,limit=50){try{const r=await fetch(`${HAPI}/addresses/${addr}/transactions?api-key=${HK}&limit=${limit}`);return r.ok?await r.json():[]}catch{return[]}}
+async function hSwaps(addr,limit=50){try{const r=await fetch(`${HAPI}/addresses/${addr}/transactions?api-key=${HK}&limit=${limit}&type=SWAP`);return r.ok?await r.json():[]}catch{return[]}}
+async function birdOver(addr){try{const r=await fetch(`${BIRD}/defi/token_overview?address=${addr}`,{headers:bH});const d=await r.json();return d.data||null}catch{return null}}
+async function birdPort(w){try{const r=await fetch(`${BIRD}/v1/wallet/token_list?wallet=${w}`,{headers:bH});const d=await r.json();return d.data?.items||[]}catch{return[]}}
+async function birdPrice(addr){try{const r=await fetch(`${BIRD}/defi/price?address=${addr}`,{headers:bH});const d=await r.json();return d.data||null}catch{return null}}
 
+// Get top holders of a token
+async function getHolders(mint){const r=await hRpc("getTokenLargestAccounts",[mint]);return r?.value||[]}
+async function getSupply(mint){const r=await hRpc("getTokenSupply",[mint]);return r?.value||null}
+
+// Get token accounts for a wallet (to find what they hold)
+async function getAccounts(wallet){
+  const r=await hRpc("getTokenAccountsByOwner",[wallet,{programId:"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{encoding:"jsonParsed"}]);
+  return r?.value||[];
+}
+
+// Resolve token account owner
+async function getAccountInfo(pubkey){
+  const r=await hRpc("getAccountInfo",[pubkey,{encoding:"jsonParsed"}]);
+  return r?.value||null;
+}
+
+// Parse swaps into structured trades
 function parseSwaps(txns){
   const out=[];
   for(const tx of txns){
@@ -36,280 +57,402 @@ function parseSwaps(txns){
     else if(tIn?.mint&&tIn.mint!=="So11111111111111111111111111111111"){action="SELL";mint=tIn.mint}
     if(nIn?.amount)solAmt=nIn.amount/1e9;
     if(nOut?.amount&&action==="SELL")solAmt=nOut.amount/1e9;
-    if(mint)out.push({action,mint,solAmt,time,sig,src,desc:tx.description||""});
+    if(mint)out.push({action,mint,solAmt,time,sig,src});
   }
   return out;
 }
 
-/* ═══ WALLET DB ═══ */
-const INIT_WALLETS=[
-  {addr:"AC2RiUxrJFe1AJMcSz2QLwGGJESTit67JFoc7YB4rBbq",tag:"WHALE-A",notes:"Consistent 5-10x, early narratives",tier:1},
-  {addr:"FnMtJFpGYoAQTJPJnwDHFQnxTPJdbnEMfJM1PwfaKVmt",tag:"DEGEN-1",notes:"High frequency, catches pumps",tier:1},
-  {addr:"5GmLJQiYuCMNnEv4PoVWkfz1hUG3oTPzA6sDFwusLiVJ",tag:"SNIPER-1",notes:"Snipes launches, fast exits",tier:1},
-  {addr:"HNoEt8Jd2gPRaN66HXnCGEHZMwqk4RcaLEJ8UiYq4JbV",tag:"WHALE-B",notes:"Big size, holds longer",tier:2},
-  {addr:"Cz1kHi3eFKZSHFMk6sbcbVhDfPLtojPgmrv72KFSkbRN",tag:"SMART-1",notes:"Good risk mgmt",tier:2},
-  {addr:"8rvz2Bg4DP32KxyTr2N1REXFBEQwBqPaACrCEZNyN4Lq",tag:"ALPHA-1",notes:"Finds tokens before CT",tier:2},
-  {addr:"GmEFwJRTicRNJbiFqxPBEFVFnMYTwWaKon7oNPHZcaeh",tag:"FLIPPER",notes:"Quick flips, high WR",tier:2},
-];
+// Analyze a wallet's swap history → win rate, PNL per token
+function analyzeSwaps(swaps){
+  const tokens={};
+  for(const s of swaps){
+    if(!tokens[s.mint])tokens[s.mint]={buys:[],sells:[],totalBuy:0,totalSell:0};
+    if(s.action==="BUY"){tokens[s.mint].buys.push(s);tokens[s.mint].totalBuy+=s.solAmt}
+    else{tokens[s.mint].sells.push(s);tokens[s.mint].totalSell+=s.solAmt}
+  }
+  let wins=0,losses=0,totalPnl=0;
+  const tokenStats=[];
+  for(const[mint,d]of Object.entries(tokens)){
+    const pnl=d.totalSell-d.totalBuy;
+    const roi=d.totalBuy>0?((d.totalSell-d.totalBuy)/d.totalBuy*100):0;
+    const closed=d.sells.length>0;
+    if(closed){if(pnl>0)wins++;else losses++}
+    totalPnl+=pnl;
+    tokenStats.push({mint,buys:d.buys.length,sells:d.sells.length,totalBuy:d.totalBuy,totalSell:d.totalSell,pnl,roi,closed,firstBuy:d.buys[0]?.time||0});
+  }
+  tokenStats.sort((a,b)=>b.pnl-a.pnl);
+  const closed=wins+losses;
+  const winRate=closed>0?(wins/closed*100):0;
+  return{wins,losses,closed,winRate,totalPnl,tokenStats,totalTrades:swaps.length};
+}
 
 /* ═══ UI ATOMS ═══ */
 const Badge=({children,color=T.g})=><span style={{fontSize:8,padding:"2px 6px",borderRadius:2,background:`${color}0d`,color,fontFamily:T.mono,fontWeight:700,letterSpacing:.5,border:`1px solid ${color}15`}}>{children}</span>;
-const TierBadge=({tier})=><Badge color={tier===1?T.g:tier===2?T.b:T.txM}>{tier===1?"T1":tier===2?"T2":"T3"}</Badge>;
-const ActionTag=({action})=><span style={{fontSize:10,fontWeight:800,color:action==="BUY"?T.g:action==="SELL"?T.r:T.txM,fontFamily:T.mono,letterSpacing:.5,minWidth:28,display:"inline-block"}}>{action}</span>;
-
+const ActionTag=({action})=><span style={{fontSize:10,fontWeight:800,color:action==="BUY"?T.g:action==="SELL"?T.r:T.txM,fontFamily:T.mono,letterSpacing:.5}}>{action}</span>;
 const CopyBtn=({text,label="COPY"})=>{const[ok,setOk]=useState(false);return<button onClick={e=>{e.stopPropagation();cp(text);setOk(true);setTimeout(()=>setOk(false),1200)}} style={{padding:"3px 8px",borderRadius:3,border:`1px solid ${ok?T.g+"30":T.brd}`,background:ok?T.gBg:"transparent",color:ok?T.g:T.txM,fontSize:8,fontWeight:700,fontFamily:T.mono,cursor:"pointer",letterSpacing:.5}}>{ok?"✓":label}</button>};
-const AxiomBtn=({mint})=><a href={`https://axiom.trade/t/${mint}/`} target="_blank" rel="noopener noreferrer" style={{padding:"3px 8px",borderRadius:3,border:`1px solid ${T.g}20`,background:T.gBg,color:T.g,fontSize:8,fontWeight:700,fontFamily:T.mono,textDecoration:"none",letterSpacing:.5}} onMouseEnter={e=>{e.currentTarget.style.background=T.g+"15"}} onMouseLeave={e=>{e.currentTarget.style.background=T.gBg}}>AXIOM ↗</a>;
-const DexBtn=({addr})=><a href={`https://dexscreener.com/solana/${addr}`} target="_blank" rel="noopener noreferrer" style={{padding:"3px 8px",borderRadius:3,border:`1px solid ${T.b}20`,background:`${T.b}08`,color:T.b,fontSize:8,fontWeight:700,fontFamily:T.mono,textDecoration:"none",letterSpacing:.5}}>DEX ↗</a>;
+const AxiomBtn=({mint})=><a href={`https://axiom.trade/t/${mint}/`} target="_blank" rel="noopener noreferrer" style={{padding:"3px 8px",borderRadius:3,border:`1px solid ${T.g}20`,background:T.gBg,color:T.g,fontSize:8,fontWeight:700,fontFamily:T.mono,textDecoration:"none",letterSpacing:.5}}>AXIOM ↗</a>;
+const GmgnBtn=({addr})=><a href={`https://gmgn.ai/sol/address/${addr}`} target="_blank" rel="noopener noreferrer" style={{padding:"3px 8px",borderRadius:3,border:`1px solid ${T.p}20`,background:`${T.p}08`,color:T.p,fontSize:8,fontWeight:700,fontFamily:T.mono,textDecoration:"none",letterSpacing:.5}}>GMGN ↗</a>;
+const Stat=({label,value,color})=><div><div style={{fontSize:8,color:T.txM,letterSpacing:1,fontWeight:600,fontFamily:T.mono,textTransform:"uppercase",marginBottom:3}}>{label}</div><div style={{fontSize:14,fontWeight:700,fontFamily:T.mono,color:color||T.w,lineHeight:1}}>{value}</div></div>;
+const Section=({children,sub})=><div style={{marginBottom:12}}><div style={{fontSize:10,fontWeight:700,letterSpacing:2.5,color:T.txM,fontFamily:T.mono,textTransform:"uppercase",paddingBottom:6,borderBottom:`1px solid ${T.brd}`}}>{children}</div>{sub&&<div style={{fontSize:9,color:T.txG,fontFamily:T.mono,marginTop:4}}>{sub}</div>}</div>;
+const Input=({value,onChange,placeholder,onSubmit,flex=1})=><input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} onKeyDown={e=>e.key==="Enter"&&onSubmit?.()} style={{flex,padding:"8px 12px",borderRadius:4,background:T.bg2,border:`1px solid ${T.brd}`,color:T.tx,fontSize:11,fontFamily:T.mono,outline:"none"}} onFocus={e=>e.target.style.borderColor=T.g+"40"} onBlur={e=>e.target.style.borderColor=T.brd}/>;
+const Btn=({onClick,disabled,children,color=T.g})=><button onClick={onClick} disabled={disabled} style={{padding:"8px 18px",borderRadius:4,background:disabled?T.bg2:`${color}08`,border:`1px solid ${disabled?T.brd:color+"25"}`,color:disabled?T.txM:color,fontSize:9,fontWeight:700,letterSpacing:1,fontFamily:T.mono,cursor:disabled?"default":"pointer"}}>{children}</button>;
 
-/* ═══ TOKEN INFO CACHE ═══ */
-const tokenCache = {};
-function useTokenInfo(mints) {
-  const [info, setInfo] = useState({});
-  useEffect(() => {
-    const toFetch = mints.filter(m => m && !tokenCache[m] && !info[m]);
-    if (!toFetch.length) return;
-    let cancelled = false;
-    (async () => {
-      for (const mint of toFetch.slice(0, 12)) {
-        if (cancelled) break;
-        const data = await birdOverview(mint);
-        if (data) {
-          tokenCache[mint] = data;
-          if (!cancelled) setInfo(p => ({ ...p, [mint]: data }));
-        }
-        await new Promise(r => setTimeout(r, 200)); // rate limit
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [mints.join(",")]);
-  return { ...tokenCache, ...info };
-}
+const WinRateBar=({rate,w=60})=>{const c=rate>=60?T.g:rate>=45?T.a:T.r;return<div style={{display:"flex",alignItems:"center",gap:6}}><div style={{width:w,height:4,borderRadius:2,background:T.bg,overflow:"hidden"}}><div style={{width:`${Math.min(rate,100)}%`,height:"100%",borderRadius:2,background:c,opacity:.7}}/></div><span style={{fontSize:11,fontWeight:700,color:c,fontFamily:T.mono}}>{rate.toFixed(0)}%</span></div>};
 
-/* ═══ LIVE FEED ═══ */
-const LiveFeed = ({ wallets }) => {
-  const [trades, setTrades] = useState([]);
+/* ═══════════════════════════════════════════════
+   DISCOVER — Find wallets from a winning token
+   ═══════════════════════════════════════════════ */
+const Discover = ({onAddWallet}) => {
+  const [mint, setMint] = useState("");
   const [loading, setLoading] = useState(false);
-  const [filter, setFilter] = useState("ALL");
+  const [status, setStatus] = useState("");
+  const [results, setResults] = useState([]);
+  const [tokenInfo, setTokenInfo] = useState(null);
 
-  const loadFeed = useCallback(async () => {
-    setLoading(true);
-    const all = [];
-    // Parallel fetch all wallets
-    const results = await Promise.allSettled(
-      wallets.map(async w => {
-        const txns = await heliusSwaps(w.addr, 15);
-        return parseSwaps(txns).map(s => ({ ...s, wallet: w.tag, walletAddr: w.addr, tier: w.tier }));
-      })
-    );
-    results.forEach(r => { if (r.status === "fulfilled") all.push(...r.value); });
-    all.sort((a, b) => b.time - a.time);
-    setTrades(all.slice(0, 80));
-    setLoading(false);
-  }, [wallets]);
+  const discover = async () => {
+    if (!mint.trim()) return;
+    setLoading(true); setResults([]); setTokenInfo(null);
+    const addr = mint.trim();
 
-  useEffect(() => { loadFeed(); }, [loadFeed]);
+    setStatus("Fetching token info...");
+    const info = await birdOver(addr);
+    setTokenInfo(info);
 
-  const mints = useMemo(() => [...new Set(trades.map(t => t.mint).filter(Boolean))], [trades]);
-  const tInfo = useTokenInfo(mints);
-  const filtered = filter === "ALL" ? trades : trades.filter(t => t.action === filter);
+    setStatus("Finding top holders...");
+    const holders = await getHolders(addr);
+    if (!holders.length) { setStatus("No holders found. Check the CA."); setLoading(false); return; }
 
-  // Convergence: multiple wallets buying same token
-  const convergence = useMemo(() => {
-    const map = {};
-    trades.filter(t => t.action === "BUY" && t.mint).forEach(t => {
-      if (!map[t.mint]) map[t.mint] = { wallets: new Set(), times: [] };
-      map[t.mint].wallets.add(t.wallet);
-      map[t.mint].times.push(t.time);
+    // Resolve token account → owner wallet
+    setStatus(`Resolving ${holders.length} holder wallets...`);
+    const wallets = [];
+    for (let i = 0; i < Math.min(holders.length, 20); i++) {
+      const h = holders[i];
+      try {
+        const accInfo = await getAccountInfo(h.address);
+        const owner = accInfo?.data?.parsed?.info?.owner;
+        if (owner && !wallets.find(w => w.owner === owner)) {
+          wallets.push({ owner, tokenAccount: h.address, amount: parseFloat(h.uiAmount || h.amount || "0") });
+        }
+      } catch {}
+      await wait(100);
+    }
+
+    if (!wallets.length) { setStatus("Could not resolve wallets."); setLoading(false); return; }
+
+    // Analyze each wallet's trade history
+    setStatus(`Analyzing ${wallets.length} wallets...`);
+    const analyzed = [];
+    for (const w of wallets.slice(0, 15)) {
+      setStatus(`Analyzing ${short(w.owner)}...`);
+      try {
+        const swaps = await hSwaps(w.owner, 50);
+        const parsed = parseSwaps(swaps);
+        if (parsed.length < 3) continue; // skip inactive
+        const stats = analyzeSwaps(parsed);
+        analyzed.push({
+          addr: w.owner,
+          ...stats,
+          recentSwaps: parsed.slice(0, 5),
+        });
+      } catch {}
+      await wait(200);
+    }
+
+    analyzed.sort((a, b) => {
+      // Score: win rate * log(trades) * pnl direction
+      const scoreA = a.winRate * Math.log2(Math.max(a.closed, 1)) * (a.totalPnl > 0 ? 1.5 : 0.5);
+      const scoreB = b.winRate * Math.log2(Math.max(b.closed, 1)) * (b.totalPnl > 0 ? 1.5 : 0.5);
+      return scoreB - scoreA;
     });
-    return Object.entries(map)
-      .filter(([_, v]) => v.wallets.size >= 2)
-      .map(([mint, v]) => ({ mint, count: v.wallets.size, names: [...v.wallets], lastTime: Math.max(...v.times) }))
-      .sort((a, b) => b.count - a.count);
-  }, [trades]);
+
+    setResults(analyzed);
+    setStatus(`Found ${analyzed.length} tradeable wallets from top holders.`);
+    setLoading(false);
+  };
 
   return (
     <div>
-      {/* CONVERGENCE ALERT */}
-      {convergence.length > 0 && (
-        <div style={{ marginBottom:20, padding:"16px 18px", borderRadius:8, background:T.gBg, border:`1px solid ${T.gBrd}` }}>
-          <div style={{ fontSize:10, fontWeight:700, letterSpacing:2.5, color:T.g, fontFamily:T.mono, marginBottom:12 }}>⚡ CONVERGENCE — MULTIPLE WALLETS BUYING SAME TOKEN</div>
-          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-            {convergence.map((c, i) => {
-              const info = tInfo[c.mint];
-              return (
-                <div key={i} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"10px 14px", borderRadius:6, background:T.bg2, border:`1px solid ${T.g}12` }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-                    <span style={{ fontSize:15, fontWeight:700, color:T.w, fontFamily:T.sans }}>{info?.symbol ? `$${info.symbol}` : short(c.mint, 6)}</span>
-                    <Badge color={T.g}>{c.count} WALLETS</Badge>
-                    <span style={{ fontSize:9, color:T.txS, fontFamily:T.mono }}>{c.names.join(" · ")}</span>
-                    {info?.mc && <span style={{ fontSize:10, color:T.txM, fontFamily:T.mono }}>MC {fmt(info.mc)}</span>}
-                    {info?.liquidity && <span style={{ fontSize:10, color:T.txM, fontFamily:T.mono }}>LIQ {fmt(info.liquidity)}</span>}
-                  </div>
-                  <div style={{ display:"flex", gap:6, alignItems:"center" }}>
-                    <span style={{ fontSize:9, color:T.txM, fontFamily:T.mono }}>{fmtAge(c.lastTime)}</span>
-                    <CopyBtn text={c.mint} label="CA" />
-                    <AxiomBtn mint={c.mint} />
-                    <DexBtn addr={c.mint} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+      <Section sub="Paste a token that pumped → finds who bought early → analyzes their trade history → surfaces wallets with highest win rates">DISCOVER WALLETS</Section>
+      
+      <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+        <Input value={mint} onChange={setMint} placeholder="Paste token CA that recently pumped..." onSubmit={discover} />
+        <Btn onClick={discover} disabled={loading}>{loading ? "SCANNING..." : "FIND WALLETS"}</Btn>
+      </div>
+
+      {status && <div style={{ fontSize:10, color:loading?T.b:T.txS, fontFamily:T.mono, marginBottom:12, padding:"6px 10px", borderRadius:4, background:T.bg2 }}>{status}</div>}
+
+      {tokenInfo && (
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4, 1fr)", gap:14, padding:"12px 16px", background:T.bg2, borderRadius:6, border:`1px solid ${T.brd}`, marginBottom:16 }}>
+          <Stat label="Token" value={tokenInfo.symbol ? `$${tokenInfo.symbol}` : "?"} />
+          <Stat label="MC" value={fmt(tokenInfo.mc || tokenInfo.marketCap || 0)} />
+          <Stat label="Liquidity" value={fmt(tokenInfo.liquidity || 0)} />
+          <Stat label="Holders" value={(tokenInfo.holder || 0).toLocaleString()} />
         </div>
       )}
 
-      {/* CONTROLS */}
-      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:14 }}>
-        <div style={{ display:"flex", gap:2, background:T.bg2, borderRadius:4, padding:2, border:`1px solid ${T.brd}` }}>
-          {["ALL","BUY","SELL"].map(f => (
-            <button key={f} onClick={() => setFilter(f)} style={{ padding:"5px 14px", borderRadius:3, border:"none", cursor:"pointer", fontSize:9, fontWeight:600, letterSpacing:.8, fontFamily:T.mono, background:filter===f?(f==="BUY"?T.gBg:f==="SELL"?T.rBg:T.s):"transparent", color:filter===f?(f==="BUY"?T.g:f==="SELL"?T.r:T.w):T.txM }}>{f}</button>
-          ))}
-        </div>
-        <button onClick={loadFeed} disabled={loading} style={{ padding:"5px 16px", borderRadius:4, border:`1px solid ${T.brd}`, background:"transparent", color:loading?T.txM:T.txS, fontSize:9, fontWeight:600, fontFamily:T.mono, cursor:loading?"default":"pointer", letterSpacing:1 }}>{loading ? "SCANNING..." : "REFRESH"}</button>
-        <div style={{ flex:1 }} />
-        <span style={{ fontSize:9, color:T.txM, fontFamily:T.mono }}>{filtered.length} trades from {wallets.length} wallets</span>
-      </div>
-
-      {/* TRADE FEED */}
-      <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
-        {filtered.map((t, i) => {
-          const info = tInfo[t.mint];
-          return (
-            <div key={t.sig+i} style={{ display:"grid", gridTemplateColumns:"34px 72px 1fr 90px 120px", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:4, background:i%2===0?"transparent":T.bg2+"40", border:`1px solid ${t.action==="BUY"&&convergence.some(c=>c.mint===t.mint)?T.g+"15":"transparent"}` }}
-              onMouseEnter={e => e.currentTarget.style.background=T.sH}
-              onMouseLeave={e => e.currentTarget.style.background=i%2===0?"transparent":T.bg2+"40"}>
-              <ActionTag action={t.action} />
-              <div style={{ display:"flex", alignItems:"center", gap:4 }}>
-                <span style={{ fontSize:10, fontWeight:700, color:T.g, fontFamily:T.mono }}>{t.wallet}</span>
-                <TierBadge tier={t.tier} />
-              </div>
-              <div>
-                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                  <span style={{ fontSize:12, fontWeight:600, color:T.w, fontFamily:T.sans }}>{info?.symbol ? `$${info.symbol}` : short(t.mint, 5)}</span>
-                  {info?.mc && <span style={{ fontSize:9, color:T.txM, fontFamily:T.mono }}>MC {fmt(info.mc)}</span>}
-                  {t.solAmt > 0 && <span style={{ fontSize:9, color:t.action==="BUY"?T.g:T.r, fontFamily:T.mono, fontWeight:600 }}>{t.solAmt.toFixed(2)} SOL</span>}
-                </div>
-                <span style={{ fontSize:9, color:T.txG, fontFamily:T.mono }}>{t.src} · {fmtAge(t.time)}</span>
-              </div>
-              <span style={{ fontSize:9, color:T.txG, fontFamily:T.mono, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textAlign:"right" }}>{short(t.mint)}</span>
-              <div style={{ display:"flex", gap:4, justifyContent:"flex-end" }}>
-                <CopyBtn text={t.mint} label="CA" />
-                <AxiomBtn mint={t.mint} />
-                <DexBtn addr={t.mint} />
-              </div>
+      {results.map((r, i) => (
+        <div key={r.addr} style={{ padding:"12px 14px", borderRadius:6, border:`1px solid ${r.winRate>=60?T.g+"15":T.brd}`, marginBottom:6, background:r.winRate>=60?T.gBg:"transparent" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+              <span style={{ fontSize:11, fontWeight:700, color:T.w, fontFamily:T.mono }}>#{i+1}</span>
+              <span style={{ fontSize:11, color:T.b, fontFamily:T.mono, cursor:"pointer" }} onClick={()=>cp(r.addr)}>{short(r.addr, 6)}</span>
+              <WinRateBar rate={r.winRate} />
+              {r.winRate >= 60 && <Badge color={T.g}>HIGH WR</Badge>}
+              {r.totalPnl > 5 && <Badge color={T.g}>PROFITABLE</Badge>}
             </div>
-          );
-        })}
-      </div>
-      {loading && !trades.length && <div style={{ padding:48, textAlign:"center", color:T.txM, fontSize:11, fontFamily:T.mono }}>Scanning {wallets.length} wallets for recent swaps...</div>}
-      {!loading && !trades.length && <div style={{ padding:48, textAlign:"center", color:T.txM, fontSize:11, fontFamily:T.mono }}>No swaps found. Hit REFRESH to try again.</div>}
+            <div style={{ display:"flex", gap:6 }}>
+              <CopyBtn text={r.addr} label="WALLET" />
+              <GmgnBtn addr={r.addr} />
+              <button onClick={()=>onAddWallet(r.addr, `D-${i+1}`, r.winRate)} style={{ padding:"3px 10px", borderRadius:3, border:`1px solid ${T.g}25`, background:T.gBg, color:T.g, fontSize:8, fontWeight:700, fontFamily:T.mono, cursor:"pointer", letterSpacing:.5 }}>+ TRACK</button>
+            </div>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(6, 1fr)", gap:12 }}>
+            <Stat label="Win Rate" value={`${r.winRate.toFixed(0)}%`} color={r.winRate>=60?T.g:r.winRate>=45?T.a:T.r} />
+            <Stat label="W / L" value={`${r.wins}/${r.losses}`} />
+            <Stat label="Trades" value={r.totalTrades} />
+            <Stat label="PNL (SOL)" value={`${r.totalPnl>=0?"+":""}${r.totalPnl.toFixed(2)}`} color={r.totalPnl>=0?T.g:T.r} />
+            <Stat label="Best" value={r.tokenStats[0]?`+${r.tokenStats[0].pnl.toFixed(1)} SOL`:"—"} color={T.g} />
+            <Stat label="Worst" value={r.tokenStats.length?`${r.tokenStats[r.tokenStats.length-1].pnl.toFixed(1)} SOL`:"—"} color={T.r} />
+          </div>
+          {r.tokenStats.length>0 && (
+            <div style={{ marginTop:10, display:"flex", flexDirection:"column", gap:2 }}>
+              <div style={{ fontSize:8, color:T.txM, fontFamily:T.mono, letterSpacing:1 }}>RECENT TOKEN P&L</div>
+              {r.tokenStats.slice(0,5).map((ts,j)=>(
+                <div key={j} style={{ display:"grid", gridTemplateColumns:"100px 60px 60px 80px 60px", gap:8, fontSize:10, fontFamily:T.mono, padding:"3px 6px", borderRadius:2, background:j%2===0?"transparent":T.bg2+"30" }}>
+                  <span style={{ color:T.txS, cursor:"pointer" }} onClick={()=>cp(ts.mint)}>{short(ts.mint)}</span>
+                  <span style={{ color:T.txM }}>{ts.buys}B / {ts.sells}S</span>
+                  <span style={{ color:T.txM }}>In: {ts.totalBuy.toFixed(2)}</span>
+                  <span style={{ color:T.txM }}>Out: {ts.totalSell.toFixed(2)}</span>
+                  <span style={{ color:ts.pnl>=0?T.g:T.r, fontWeight:600 }}>{ts.pnl>=0?"+":""}{ts.pnl.toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 };
 
-/* ═══ WALLET MANAGER ═══ */
-const WalletManager = ({ wallets, setWallets }) => {
-  const [input, setInput] = useState("");
-  const [tag, setTag] = useState("");
-  const [expanded, setExpanded] = useState(null);
-  const [stats, setStats] = useState({});
-  const [busy, setBusy] = useState(null);
+/* ═══════════════════════════════════════════════
+   VALIDATE — Deep dive any wallet
+   ═══════════════════════════════════════════════ */
+const Validate = ({onAddWallet}) => {
+  const [addr, setAddr] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+  const [holdings, setHoldings] = useState(null);
 
-  const add = () => {
-    if (!input.trim() || input.length < 32) return;
-    setWallets(p => [...p, { addr: input.trim(), tag: tag || `W-${p.length+1}`, notes: "", tier: 3 }]);
-    setInput(""); setTag("");
-  };
-  const remove = (addr) => setWallets(p => p.filter(w => w.addr !== addr));
+  const validate = async () => {
+    if (!addr.trim()) return;
+    setLoading(true); setResult(null); setHoldings(null);
+    const w = addr.trim();
 
-  const analyze = async (addr) => {
-    if (expanded === addr && stats[addr]) { setExpanded(null); return; }
-    setExpanded(addr);
-    if (stats[addr]) return;
-    setBusy(addr);
-    const [portfolio, txns] = await Promise.allSettled([birdPortfolio(addr), heliusSwaps(addr, 25)]);
+    const [swapTxns, portfolio] = await Promise.allSettled([
+      hSwaps(w, 100),
+      birdPort(w),
+    ]);
+
+    const swaps = swapTxns.status === "fulfilled" ? parseSwaps(swapTxns.value) : [];
+    const stats = analyzeSwaps(swaps);
+    setResult({ addr: w, ...stats, rawSwaps: swaps });
+
     const port = portfolio.status === "fulfilled" ? portfolio.value : [];
-    const swaps = txns.status === "fulfilled" ? parseSwaps(txns.value) : [];
-    const holdings = port.filter(t => t.uiAmount > 0 && t.symbol !== "SOL").sort((a, b) => (b.valueUsd || 0) - (a.valueUsd || 0));
-    const totalVal = holdings.reduce((s, t) => s + (t.valueUsd || 0), 0);
+    const hold = port.filter(t => t.uiAmount > 0 && t.symbol !== "SOL").sort((a, b) => (b.valueUsd || 0) - (a.valueUsd || 0));
     const solBal = port.find(t => t.symbol === "SOL");
-    const buys = swaps.filter(s => s.action === "BUY").length;
-    const sells = swaps.filter(s => s.action === "SELL").length;
-    setStats(p => ({ ...p, [addr]: { holdings: holdings.slice(0, 15), totalVal, sol: solBal?.uiAmount || 0, buys, sells, swaps: swaps.slice(0, 20) } }));
-    setBusy(null);
+    setHoldings({ tokens: hold.slice(0, 20), sol: solBal?.uiAmount || 0, totalVal: hold.reduce((s, t) => s + (t.valueUsd || 0), 0) });
+
+    setLoading(false);
   };
+
+  const r = result;
 
   return (
     <div>
-      <div style={{ display:"flex", gap:6, marginBottom:16 }}>
-        <input value={input} onChange={e => setInput(e.target.value)} placeholder="Paste wallet address..." style={{ flex:1, padding:"8px 12px", borderRadius:4, background:T.bg2, border:`1px solid ${T.brd}`, color:T.tx, fontSize:11, fontFamily:T.mono, outline:"none" }} onKeyDown={e => e.key === "Enter" && add()} onFocus={e => e.target.style.borderColor = T.g + "40"} onBlur={e => e.target.style.borderColor = T.brd} />
-        <input value={tag} onChange={e => setTag(e.target.value)} placeholder="Tag" style={{ width:80, padding:"8px", borderRadius:4, background:T.bg2, border:`1px solid ${T.brd}`, color:T.tx, fontSize:11, fontFamily:T.mono, outline:"none" }} />
-        <button onClick={add} style={{ padding:"8px 18px", borderRadius:4, background:T.gBg, border:`1px solid ${T.gBrd}`, color:T.g, fontSize:9, fontWeight:700, letterSpacing:1, fontFamily:T.mono, cursor:"pointer" }}>+ ADD</button>
+      <Section sub="Paste any wallet → get full trade history analysis with win rate, PNL breakdown, current holdings">VALIDATE WALLET</Section>
+
+      <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+        <Input value={addr} onChange={setAddr} placeholder="Paste wallet address to analyze..." onSubmit={validate} />
+        <Btn onClick={validate} disabled={loading}>{loading ? "ANALYZING..." : "VALIDATE"}</Btn>
       </div>
 
-      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-        {wallets.map((w) => {
-          const st = stats[w.addr];
-          const isExp = expanded === w.addr;
-          return (
-            <div key={w.addr} style={{ borderRadius:6, border:`1px solid ${isExp ? T.g + "18" : T.brd}`, overflow:"hidden" }}>
-              {/* Row */}
-              <div onClick={() => analyze(w.addr)} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"11px 14px", cursor:"pointer", background:isExp ? T.gBg : "transparent", transition:"background .15s" }}
-                onMouseEnter={e => { if (!isExp) e.currentTarget.style.background = T.sH }}
-                onMouseLeave={e => { if (!isExp) e.currentTarget.style.background = "transparent" }}>
-                <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                  <span style={{ fontSize:12, fontWeight:700, color:T.g, fontFamily:T.mono, minWidth:70 }}>{w.tag}</span>
-                  <TierBadge tier={w.tier} />
-                  <span style={{ fontSize:10, color:T.txM, fontFamily:T.mono, cursor:"pointer" }} onClick={e => { e.stopPropagation(); cp(w.addr) }}>{short(w.addr)}</span>
-                  <span style={{ fontSize:9, color:T.txG, fontFamily:T.mono }}>{w.notes}</span>
-                </div>
-                <div style={{ display:"flex", gap:6, alignItems:"center" }}>
-                  {st && <span style={{ fontSize:9, color:T.txS, fontFamily:T.mono }}>{st.sol.toFixed(1)} SOL · {fmt(st.totalVal)} · {st.buys}B/{st.sells}S</span>}
-                  {busy === w.addr && <span style={{ fontSize:9, color:T.b, fontFamily:T.mono }}>analyzing...</span>}
-                  <a href={`https://solscan.io/account/${w.addr}`} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ padding:"4px 8px", borderRadius:3, border:`1px solid ${T.brd}`, color:T.txM, fontSize:8, fontWeight:700, fontFamily:T.mono, textDecoration:"none" }}>SOLSCAN</a>
-                  {w.tier === 3 && <button onClick={e => { e.stopPropagation(); remove(w.addr) }} style={{ padding:"4px 8px", borderRadius:3, border:`1px solid ${T.r}15`, background:"transparent", color:T.r, fontSize:8, fontWeight:700, fontFamily:T.mono, cursor:"pointer" }}>✕</button>}
-                </div>
+      {r && (
+        <div>
+          {/* Score Card */}
+          <div style={{ padding:"16px 18px", borderRadius:8, border:`1px solid ${r.winRate>=60?T.g+"20":r.winRate>=45?T.a+"20":T.r+"20"}`, background:r.winRate>=60?T.gBg:r.winRate>=45?`${T.a}08`:T.rBg, marginBottom:16 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                <span style={{ fontSize:10, color:T.txM, fontFamily:T.mono, cursor:"pointer" }} onClick={()=>cp(r.addr)}>{short(r.addr, 8)}</span>
+                {r.winRate>=60 && <Badge color={T.g}>WORTH COPYING</Badge>}
+                {r.winRate>=45 && r.winRate<60 && <Badge color={T.a}>MIXED</Badge>}
+                {r.winRate<45 && <Badge color={T.r}>RISKY</Badge>}
               </div>
+              <div style={{ display:"flex", gap:6 }}>
+                <CopyBtn text={r.addr} label="WALLET" />
+                <GmgnBtn addr={r.addr} />
+                <button onClick={()=>onAddWallet(r.addr, `V-${Date.now()%1000}`, r.winRate)} style={{ padding:"3px 10px", borderRadius:3, border:`1px solid ${T.g}25`, background:T.gBg, color:T.g, fontSize:8, fontWeight:700, fontFamily:T.mono, cursor:"pointer" }}>+ TRACK</button>
+              </div>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(6, 1fr)", gap:14 }}>
+              <div><div style={{ fontSize:8, color:T.txM, letterSpacing:1, fontWeight:600, fontFamily:T.mono, marginBottom:4 }}>WIN RATE</div><WinRateBar rate={r.winRate} w={80} /></div>
+              <Stat label="W / L" value={`${r.wins} / ${r.losses}`} />
+              <Stat label="Closed" value={r.closed} />
+              <Stat label="Total Swaps" value={r.totalTrades} />
+              <Stat label="Net PNL" value={`${r.totalPnl>=0?"+":""}${r.totalPnl.toFixed(2)} SOL`} color={r.totalPnl>=0?T.g:T.r} />
+              <Stat label="Tokens Traded" value={r.tokenStats.length} />
+            </div>
+          </div>
 
-              {/* Expanded Detail */}
-              {isExp && st && (
-                <div style={{ padding:"14px 14px 18px", borderTop:`1px solid ${T.brd}` }}>
-                  <div style={{ fontSize:9, color:T.g, fontFamily:T.mono, letterSpacing:2, fontWeight:700, marginBottom:10 }}>HOLDINGS</div>
-                  <div style={{ display:"flex", flexDirection:"column", gap:2, marginBottom:18 }}>
-                    {st.holdings.length === 0 && <span style={{ fontSize:10, color:T.txM, fontFamily:T.mono }}>No token holdings found</span>}
-                    {st.holdings.map((tk, j) => (
-                      <div key={j} style={{ display:"grid", gridTemplateColumns:"80px 1fr 70px 60px 90px", alignItems:"center", gap:6, padding:"5px 8px", borderRadius:3, background:j % 2 === 0 ? "transparent" : T.bg2 + "30", fontSize:10, fontFamily:T.mono }}>
-                        <span style={{ color:T.b, fontWeight:600 }}>{tk.symbol || "???"}</span>
-                        <span style={{ color:T.txG, cursor:"pointer" }} onClick={() => cp(tk.address)}>{short(tk.address)}</span>
-                        <span style={{ color:T.txS, textAlign:"right" }}>{tk.uiAmount > 1e6 ? `${(tk.uiAmount / 1e6).toFixed(1)}M` : tk.uiAmount > 1e3 ? `${(tk.uiAmount / 1e3).toFixed(1)}K` : tk.uiAmount.toFixed(1)}</span>
-                        <span style={{ color:tk.valueUsd > 100 ? T.g : T.txM, textAlign:"right", fontWeight:600 }}>{tk.valueUsd > 0 ? fmt(tk.valueUsd) : "—"}</span>
-                        <div style={{ display:"flex", gap:3, justifyContent:"flex-end" }}>
-                          <CopyBtn text={tk.address} label="CA" />
-                          <AxiomBtn mint={tk.address} />
-                        </div>
-                      </div>
-                    ))}
+          {/* Holdings */}
+          {holdings && (
+            <div style={{ marginBottom:16 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                <span style={{ fontSize:9, color:T.b, fontFamily:T.mono, letterSpacing:2, fontWeight:700 }}>CURRENT HOLDINGS</span>
+                <span style={{ fontSize:9, color:T.txM, fontFamily:T.mono }}>{holdings.sol.toFixed(2)} SOL · {fmt(holdings.totalVal)} portfolio</span>
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                {holdings.tokens.map((tk, j) => (
+                  <div key={j} style={{ display:"grid", gridTemplateColumns:"80px 1fr 70px 60px 80px", alignItems:"center", gap:6, padding:"5px 8px", borderRadius:3, background:j%2===0?"transparent":T.bg2+"30", fontSize:10, fontFamily:T.mono }}>
+                    <span style={{ color:T.b, fontWeight:600 }}>{tk.symbol || "???"}</span>
+                    <span style={{ color:T.txG, cursor:"pointer" }} onClick={()=>cp(tk.address)}>{short(tk.address)}</span>
+                    <span style={{ color:T.txS, textAlign:"right" }}>{tk.uiAmount>1e6?`${(tk.uiAmount/1e6).toFixed(1)}M`:tk.uiAmount>1e3?`${(tk.uiAmount/1e3).toFixed(1)}K`:tk.uiAmount?.toFixed(1)}</span>
+                    <span style={{ color:tk.valueUsd>100?T.g:T.txM, textAlign:"right", fontWeight:600 }}>{tk.valueUsd>0?fmt(tk.valueUsd):"—"}</span>
+                    <div style={{ display:"flex", gap:3, justifyContent:"flex-end" }}><CopyBtn text={tk.address} label="CA" /><AxiomBtn mint={tk.address} /></div>
                   </div>
+                ))}
+                {!holdings.tokens.length && <span style={{ fontSize:10, color:T.txM, fontFamily:T.mono, padding:8 }}>No token holdings found</span>}
+              </div>
+            </div>
+          )}
 
-                  <div style={{ fontSize:9, color:T.p, fontFamily:T.mono, letterSpacing:2, fontWeight:700, marginBottom:10 }}>RECENT SWAPS</div>
-                  <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
-                    {st.swaps.length === 0 && <span style={{ fontSize:10, color:T.txM, fontFamily:T.mono }}>No recent swaps</span>}
-                    {st.swaps.map((sw, j) => (
-                      <div key={j} style={{ display:"grid", gridTemplateColumns:"34px 100px 80px 1fr 60px 70px", alignItems:"center", gap:6, padding:"4px 8px", borderRadius:3, background:j % 2 === 0 ? "transparent" : T.bg2 + "20", fontSize:10, fontFamily:T.mono }}>
-                        <ActionTag action={sw.action} />
-                        <span style={{ color:T.txS, cursor:"pointer" }} onClick={() => cp(sw.mint)}>{short(sw.mint)}</span>
-                        {sw.solAmt > 0 ? <span style={{ color:sw.action === "BUY" ? T.g : T.r }}>{sw.solAmt.toFixed(2)} SOL</span> : <span style={{ color:T.txG }}>—</span>}
-                        <span style={{ color:T.txG }}>{sw.src}</span>
-                        <span style={{ color:T.txM, textAlign:"right" }}>{fmtAge(sw.time)}</span>
-                        <div style={{ display:"flex", gap:3, justifyContent:"flex-end" }}>
-                          <CopyBtn text={sw.mint} label="CA" />
-                          <AxiomBtn mint={sw.mint} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+          {/* Token PNL Breakdown */}
+          <div style={{ fontSize:9, color:T.p, fontFamily:T.mono, letterSpacing:2, fontWeight:700, marginBottom:8 }}>TOKEN P&L BREAKDOWN</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+            {r.tokenStats.map((ts, j) => (
+              <div key={j} style={{ display:"grid", gridTemplateColumns:"100px 50px 50px 70px 70px 60px 60px", alignItems:"center", gap:6, padding:"5px 8px", borderRadius:3, background:j%2===0?"transparent":T.bg2+"20", fontSize:10, fontFamily:T.mono }}>
+                <span style={{ color:T.txS, cursor:"pointer" }} onClick={()=>cp(ts.mint)}>{short(ts.mint)}</span>
+                <span style={{ color:T.txM }}>{ts.buys}B</span>
+                <span style={{ color:T.txM }}>{ts.sells}S</span>
+                <span style={{ color:T.txM }}>In: {ts.totalBuy.toFixed(2)}</span>
+                <span style={{ color:T.txM }}>Out: {ts.totalSell.toFixed(2)}</span>
+                <span style={{ color:ts.pnl>=0?T.g:T.r, fontWeight:700 }}>{ts.pnl>=0?"+":""}{ts.pnl.toFixed(2)}</span>
+                <span style={{ color:ts.roi>=0?T.g:T.r, fontSize:9 }}>{ts.closed?`${ts.roi>=0?"+":""}${ts.roi.toFixed(0)}%`:"OPEN"}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {!r && !loading && <div style={{ padding:40, textAlign:"center", color:T.txM, fontSize:11, fontFamily:T.mono, background:T.bg2, borderRadius:6, border:`1px solid ${T.brd}` }}>Paste a wallet above. Pulls last 100 swaps via Helius, calculates win rate and PNL per token.</div>}
+    </div>
+  );
+};
+
+/* ═══════════════════════════════════════════════
+   WATCHLIST — Track validated wallets live
+   ═══════════════════════════════════════════════ */
+const Watchlist = ({wallets, setWallets}) => {
+  const [trades, setTrades] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [tInfo, setTInfo] = useState({});
+
+  const loadFeed = useCallback(async () => {
+    if (!wallets.length) return;
+    setLoading(true);
+    const all = [];
+    const results = await Promise.allSettled(
+      wallets.map(async w => {
+        const txns = await hSwaps(w.addr, 12);
+        return parseSwaps(txns).map(s => ({ ...s, tag: w.tag, walletAddr: w.addr, wr: w.winRate }));
+      })
+    );
+    results.forEach(r => { if (r.status === "fulfilled") all.push(...r.value) });
+    all.sort((a, b) => b.time - a.time);
+    setTrades(all.slice(0, 80));
+    setLoading(false);
+
+    // Fetch token info
+    const mints = [...new Set(all.map(t => t.mint).filter(Boolean))].slice(0, 10);
+    for (const m of mints) {
+      if (!tInfo[m]) {
+        const info = await birdOver(m);
+        if (info) setTInfo(p => ({ ...p, [m]: info }));
+        await wait(200);
+      }
+    }
+  }, [wallets]);
+
+  useEffect(() => { loadFeed() }, [loadFeed]);
+
+  const convergence = useMemo(() => {
+    const map = {};
+    trades.filter(t => t.action === "BUY").forEach(t => {
+      if (!map[t.mint]) map[t.mint] = new Set();
+      map[t.mint].add(t.tag);
+    });
+    return Object.entries(map).filter(([_, w]) => w.size >= 2).map(([mint, w]) => ({ mint, count: w.size, names: [...w] }));
+  }, [trades]);
+
+  const remove = (addr) => setWallets(p => p.filter(w => w.addr !== addr));
+
+  return (
+    <div>
+      <Section sub={`${wallets.length} wallets tracked · Convergence alerts when multiple wallets buy the same token`}>WATCHLIST</Section>
+
+      {!wallets.length && <div style={{ padding:40, textAlign:"center", color:T.txM, fontSize:11, fontFamily:T.mono, background:T.bg2, borderRadius:6, border:`1px solid ${T.brd}` }}>No wallets tracked yet. Use DISCOVER or VALIDATE to find wallets, then click "+ TRACK" to add them here.</div>}
+
+      {/* Wallet chips */}
+      {wallets.length > 0 && (
+        <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:14 }}>
+          {wallets.map(w => (
+            <div key={w.addr} style={{ display:"flex", alignItems:"center", gap:6, padding:"5px 10px", borderRadius:4, background:T.bg2, border:`1px solid ${T.brd}`, fontSize:9, fontFamily:T.mono }}>
+              <span style={{ color:T.g, fontWeight:700 }}>{w.tag}</span>
+              <span style={{ color:T.txM }}>{short(w.addr)}</span>
+              <span style={{ color:w.winRate>=60?T.g:w.winRate>=45?T.a:T.txM }}>{w.winRate?.toFixed(0)||"?"}% WR</span>
+              <button onClick={()=>remove(w.addr)} style={{ background:"none", border:"none", color:T.r, cursor:"pointer", fontSize:10, fontFamily:T.mono, padding:0 }}>✕</button>
+            </div>
+          ))}
+          <Btn onClick={loadFeed} disabled={loading}>{loading?"···":"REFRESH"}</Btn>
+        </div>
+      )}
+
+      {/* Convergence */}
+      {convergence.length > 0 && (
+        <div style={{ marginBottom:16, padding:"14px 16px", borderRadius:8, background:T.gBg, border:`1px solid ${T.gBrd}` }}>
+          <div style={{ fontSize:10, fontWeight:700, letterSpacing:2.5, color:T.g, fontFamily:T.mono, marginBottom:10 }}>⚡ CONVERGENCE</div>
+          {convergence.map((c, i) => {
+            const info = tInfo[c.mint];
+            return (
+              <div key={i} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"8px 12px", borderRadius:4, background:T.bg2, marginBottom:4 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                  <span style={{ fontSize:14, fontWeight:700, color:T.w, fontFamily:T.sans }}>{info?.symbol ? `$${info.symbol}` : short(c.mint, 6)}</span>
+                  <Badge color={T.g}>{c.count} WALLETS</Badge>
+                  <span style={{ fontSize:9, color:T.txM, fontFamily:T.mono }}>{c.names.join(" · ")}</span>
+                  {info?.mc && <span style={{ fontSize:9, color:T.txM, fontFamily:T.mono }}>MC {fmt(info.mc)}</span>}
                 </div>
-              )}
+                <div style={{ display:"flex", gap:4 }}><CopyBtn text={c.mint} label="CA" /><AxiomBtn mint={c.mint} /></div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Feed */}
+      <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
+        {trades.map((t, i) => {
+          const info = tInfo[t.mint];
+          return (
+            <div key={t.sig+i} style={{ display:"grid", gridTemplateColumns:"32px 80px 1fr 80px 100px", alignItems:"center", gap:8, padding:"8px 10px", borderRadius:4, background:i%2===0?"transparent":T.bg2+"40" }}
+              onMouseEnter={e=>e.currentTarget.style.background=T.sH}
+              onMouseLeave={e=>e.currentTarget.style.background=i%2===0?"transparent":T.bg2+"40"}>
+              <ActionTag action={t.action} />
+              <span style={{ fontSize:10, fontWeight:700, color:T.g, fontFamily:T.mono }}>{t.tag}</span>
+              <div>
+                <span style={{ fontSize:11, fontWeight:600, color:T.w, fontFamily:T.sans }}>{info?.symbol?`$${info.symbol}`:short(t.mint,5)}</span>
+                {t.solAmt>0 && <span style={{ fontSize:9, color:t.action==="BUY"?T.g:T.r, fontFamily:T.mono, marginLeft:8 }}>{t.solAmt.toFixed(2)} SOL</span>}
+                <span style={{ fontSize:9, color:T.txG, fontFamily:T.mono, marginLeft:8 }}>{t.src} · {fmtAge(t.time)}</span>
+              </div>
+              <span style={{ fontSize:9, color:T.txG, fontFamily:T.mono, textAlign:"right" }}>{short(t.mint)}</span>
+              <div style={{ display:"flex", gap:4, justifyContent:"flex-end" }}><CopyBtn text={t.mint} label="CA" /><AxiomBtn mint={t.mint} /></div>
             </div>
           );
         })}
@@ -320,8 +463,13 @@ const WalletManager = ({ wallets, setWallets }) => {
 
 /* ═══ MAIN ═══ */
 export default function App() {
-  const [tab, setTab] = useState("feed");
-  const [wallets, setWallets] = useState(INIT_WALLETS);
+  const [tab, setTab] = useState("discover");
+  const [wallets, setWallets] = useState([]);
+
+  const addWallet = (addr, tag, winRate) => {
+    if (wallets.find(w => w.addr === addr)) return;
+    setWallets(p => [...p, { addr, tag, winRate }]);
+  };
 
   return (
     <div style={{ minHeight:"100vh", background:T.bg, color:T.tx, fontFamily:T.sans }}>
@@ -347,7 +495,7 @@ export default function App() {
           <div style={{ width:4, height:22, borderRadius:1, background:T.g }} />
           <div>
             <div style={{ fontSize:15, fontWeight:700, letterSpacing:4, color:T.w, fontFamily:T.mono }}>SIGNAL</div>
-            <div style={{ fontSize:8, color:T.txM, fontFamily:T.mono, letterSpacing:2.5, marginTop:1 }}>WALLET INTELLIGENCE</div>
+            <div style={{ fontSize:8, color:T.txM, fontFamily:T.mono, letterSpacing:2.5, marginTop:1 }}>WALLET DISCOVERY ENGINE</div>
           </div>
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:10 }}>
@@ -360,29 +508,31 @@ export default function App() {
         </div>
       </header>
 
-      <div style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 24px", borderBottom:`1px solid ${T.brd}` }}>
-        {[["feed", "LIVE FEED", "What are they buying NOW"], ["wallets", "MY WALLETS", "Analyze & manage"]].map(([id, l, desc]) => (
-          <button key={id} onClick={() => setTab(id)} style={{ padding:"8px 22px", borderRadius:5, border:`1px solid ${tab === id ? T.g + "20" : T.brd}`, cursor:"pointer", fontSize:10, fontWeight:600, letterSpacing:1.2, fontFamily:T.mono, background:tab === id ? T.gBg : "transparent", color:tab === id ? T.g : T.txM, transition:"all .15s" }}>
-            {l}<div style={{ fontSize:8, color:tab === id ? T.g + "80" : T.txG, fontWeight:400, marginTop:2, letterSpacing:.5 }}>{desc}</div>
+      <div style={{ display:"flex", alignItems:"center", gap:6, padding:"10px 24px", borderBottom:`1px solid ${T.brd}` }}>
+        {[
+          ["discover","DISCOVER","Token → Find wallets"],
+          ["validate","VALIDATE","Wallet → Get stats"],
+          ["watchlist","WATCHLIST",`${wallets.length} tracked`],
+        ].map(([id,l,desc]) => (
+          <button key={id} onClick={()=>setTab(id)} style={{ padding:"8px 20px", borderRadius:5, border:`1px solid ${tab===id?T.g+"20":T.brd}`, cursor:"pointer", fontSize:10, fontWeight:600, letterSpacing:1.2, fontFamily:T.mono, background:tab===id?T.gBg:"transparent", color:tab===id?T.g:T.txM }}>
+            {l}<div style={{ fontSize:8, color:tab===id?T.g+"80":T.txG, fontWeight:400, marginTop:2 }}>{desc}</div>
           </button>
         ))}
-        <div style={{ flex:1 }} />
-        <span style={{ fontSize:9, color:T.txM, fontFamily:T.mono }}>{wallets.length} wallets</span>
       </div>
 
       <div style={{ padding:"18px 24px 80px" }}>
-        {tab === "feed" && <LiveFeed wallets={wallets} />}
-        {tab === "wallets" && <WalletManager wallets={wallets} setWallets={setWallets} />}
+        {tab==="discover" && <Discover onAddWallet={addWallet} />}
+        {tab==="validate" && <Validate onAddWallet={addWallet} />}
+        {tab==="watchlist" && <Watchlist wallets={wallets} setWallets={setWallets} />}
       </div>
 
       <div style={{ position:"fixed", bottom:0, left:0, right:0, padding:"8px 24px", borderTop:`1px solid ${T.brd}`, background:T.bg1, display:"flex", justifyContent:"space-between", alignItems:"center", zIndex:50 }}>
         <div style={{ display:"flex", gap:16 }}>
-          {[["AXIOM", "https://axiom.trade"], ["JUPITER", "https://jup.ag"], ["DEXSCREENER", "https://dexscreener.com"]].map(([l, u]) => (
-            <a key={l} href={u} target="_blank" rel="noopener noreferrer" style={{ fontSize:9, fontWeight:600, letterSpacing:1.5, color:T.txM, fontFamily:T.mono, textDecoration:"none" }}
-              onMouseEnter={e => e.currentTarget.style.color = T.g} onMouseLeave={e => e.currentTarget.style.color = T.txM}>{l}</a>
+          {[["AXIOM","https://axiom.trade"],["GMGN","https://gmgn.ai"],["DEXSCREENER","https://dexscreener.com"]].map(([l,u]) => (
+            <a key={l} href={u} target="_blank" rel="noopener noreferrer" style={{ fontSize:9, fontWeight:600, letterSpacing:1.5, color:T.txM, fontFamily:T.mono, textDecoration:"none" }} onMouseEnter={e=>e.currentTarget.style.color=T.g} onMouseLeave={e=>e.currentTarget.style.color=T.txM}>{l}</a>
           ))}
         </div>
-        <span style={{ fontSize:9, color:T.txG, fontFamily:T.mono }}>Copy with conviction, not hope</span>
+        <span style={{ fontSize:9, color:T.txG, fontFamily:T.mono }}>Find the wallets. Validate the edge. Copy with conviction.</span>
       </div>
     </div>
   );
