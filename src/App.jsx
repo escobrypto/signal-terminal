@@ -33,38 +33,50 @@ function parseTxPnL(txs,tokenMint,wallet){
 function fullPnL(p,hold,price){if(!p||!price)return p;const hv=hold*price;const rc=p.tokBuy>0?p.cost*((p.tokBuy-p.tokSell)/p.tokBuy):0;const ur=hv-Math.max(rc,0);return{...p,hv,ur,total:(p.real||0)+ur,rc}}
 
 // Extract ALL token movements from TXs for watchlist history
-// Build mint→symbol map from TX data
+// Build mint→symbol from Helius enhanced TX descriptions
+// Helius format: "WALLET swapped X.XX TOKEN_A for Y.YY TOKEN_B"
+// or "WALLET transferred X TOKEN from WALLET to WALLET"
 function buildMintMap(txs){
   const map=new Map();
   map.set(SOL_MINT,"SOL");
   map.set("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","USDC");
   map.set("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB","USDT");
+  
   for(const tx of(txs||[])){
-    // Helius enhanced TXs sometimes have tokenStandard or symbol info
-    for(const x of(tx.tokenTransfers||[])){
-      if(x.mint&&!map.has(x.mint)){
-        // Try to extract from description
-        const desc=tx.description||"";
-        // Pattern: "X swapped 100 TOKEN_A for 200 TOKEN_B"
-        const words=desc.split(/\s+/);
-        for(let i=0;i<words.length;i++){
-          if(words[i]==="for"||words[i]==="of"||words[i]==="to"){
-            // check adjacent words for token-like names
-          }
-        }
-        // Use the mint's first 6 chars as fallback but try to find symbol
-        // Check if any events have symbol
-        if(tx.events?.swap?.tokenInputs){
-          for(const ti of tx.events.swap.tokenInputs){if(ti.mint===x.mint&&ti.symbol)map.set(x.mint,ti.symbol)}
-          for(const to of(tx.events.swap.tokenOutputs||[])){if(to.mint===x.mint&&to.symbol)map.set(x.mint,to.symbol)}
+    const xfers=tx.tokenTransfers||[];
+    const desc=tx.description||"";
+    
+    // Strategy 1: Match amounts in description to tokenTransfer amounts
+    // "swapped 0.83 SOL for 45,700 OIIA0IIA" → extract number-symbol pairs
+    const pairs=[];
+    const re=/(?:^|[\s,])(\d[\d,.]*)\s+([A-Za-z][\w$]*)/g;
+    let match;
+    while((match=re.exec(desc))!==null){
+      const num=parseFloat(match[1].replace(/,/g,""));
+      const sym=match[2];
+      if(num>0&&sym.length>=2&&sym.length<=20&&sym!=="from"&&sym!=="to"&&sym!=="for")
+        pairs.push({num,sym});
+    }
+    
+    // Match each tokenTransfer to a description pair by amount
+    for(const x of xfers){
+      if(!x.mint||map.has(x.mint))continue;
+      const amt=Math.abs(parseFloat(x.tokenAmount||0));
+      if(amt===0)continue;
+      // Find matching pair (within 1% tolerance)
+      for(const p of pairs){
+        if(Math.abs(p.num-amt)/Math.max(amt,0.001)<0.02){
+          map.set(x.mint,p.sym);break;
         }
       }
     }
-    // Also check accountData for token info
+    
+    // Strategy 2: Check Helius events.swap if available
     if(tx.events?.swap){
       const sw=tx.events.swap;
-      if(sw.nativeInput?.mint)map.set(sw.nativeInput.mint,"SOL");
-      for(const t of[...(sw.tokenInputs||[]),...(sw.tokenOutputs||[])]){if(t.mint&&t.rawTokenAmount){if(!map.has(t.mint))map.set(t.mint,t.mint.slice(0,6))}}
+      for(const t of[...(sw.tokenInputs||[]),...(sw.tokenOutputs||[])]){
+        if(t.mint&&t.symbol&&!map.has(t.mint))map.set(t.mint,t.symbol);
+      }
     }
   }
   return map;
@@ -78,21 +90,9 @@ function extractAllMoves(txs,wallet){
       const amt=Math.abs(parseFloat(x.tokenAmount||0));if(amt===0)continue;
       const isIn=x.toUserAccount===wallet;const isOut=x.fromUserAccount===wallet;if(!isIn&&!isOut)continue;
       let val=0;
-      if(isIn){const vo=xf.filter(v=>(v.mint===SOL_MINT||STABLES.has(v.mint))&&v.fromUserAccount===wallet);val=vo.reduce((s,v)=>s+Math.abs(parseFloat(v.tokenAmount||0))*(v.mint===SOL_MINT?150:1),0);val+=nat.filter(n=>n.fromUserAccount===wallet&&Math.abs(n.amount)>10000).reduce((s,n)=>s+Math.abs(n.amount)/1e9*150,0)}
-      if(isOut){const vi=xf.filter(v=>(v.mint===SOL_MINT||STABLES.has(v.mint))&&v.toUserAccount===wallet);val=vi.reduce((s,v)=>s+Math.abs(parseFloat(v.tokenAmount||0))*(v.mint===SOL_MINT?150:1),0);val+=nat.filter(n=>n.toUserAccount===wallet&&Math.abs(n.amount)>10000).reduce((s,n)=>s+Math.abs(n.amount)/1e9*150,0)}
-      // Resolve symbol
-      let sym=mintMap.get(x.mint)||null;
-      // If no symbol yet, try parsing from description
-      if(!sym&&tx.description){
-        const desc=tx.description;
-        // Helius descriptions look like: "4WSFR...CVALU swapped 0.83 SOL for 45,700 OIIA0IIA"
-        const match=desc.match(/[\d,.]+\s+(\S+)/g);
-        if(match){for(const m of match){const parts=m.trim().split(/\s+/);if(parts.length>=2){const tkn=parts[parts.length-1];
-          // Check if this token matches our mint by seeing if the amount matches
-          const mAmt=parseFloat(parts[0].replace(/,/g,""));
-          if(Math.abs(mAmt-amt)/Math.max(amt,1)<0.01){sym=tkn;mintMap.set(x.mint,tkn)}}}}
-      }
-      if(!sym)sym=x.mint?`${x.mint.slice(0,4)}..${x.mint.slice(-3)}`:"?";
+      if(isIn){val=xf.filter(v=>(v.mint===SOL_MINT||STABLES.has(v.mint))&&v.fromUserAccount===wallet).reduce((s,v)=>s+Math.abs(parseFloat(v.tokenAmount||0))*(v.mint===SOL_MINT?150:1),0)+nat.filter(n=>n.fromUserAccount===wallet&&Math.abs(n.amount)>10000).reduce((s,n)=>s+Math.abs(n.amount)/1e9*150,0)}
+      if(isOut){val=xf.filter(v=>(v.mint===SOL_MINT||STABLES.has(v.mint))&&v.toUserAccount===wallet).reduce((s,v)=>s+Math.abs(parseFloat(v.tokenAmount||0))*(v.mint===SOL_MINT?150:1),0)+nat.filter(n=>n.toUserAccount===wallet&&Math.abs(n.amount)>10000).reduce((s,n)=>s+Math.abs(n.amount)/1e9*150,0)}
+      const sym=mintMap.get(x.mint)||`${x.mint.slice(0,6)}`;
       moves.push({dir:isIn?"IN":"OUT",type:tx.type||"UNKNOWN",mint:x.mint,sym,amt,val,priceEa:amt>0&&val>0?val/amt:null,ts:tx.timestamp,sig:tx.signature})}}
   moves.sort((a,b)=>(b.ts||0)-(a.ts||0));
   const seen=new Set();return moves.filter(m=>{const k=`${m.sig}-${m.mint}-${m.dir}`;if(seen.has(k))return false;seen.add(k);return true})}
@@ -198,7 +198,7 @@ function TokenMovesTable({txs,wallet}){
     {moves.slice(0,25).map((m,i)=><div key={i} style={{display:"grid",gridTemplateColumns:"50px 55px 0.8fr 0.7fr 0.6fr 0.6fr 45px",padding:"3px 4px",marginBottom:1,borderRadius:3,background:i%2?`${C.bg}55`:"transparent",fontSize:10,alignItems:"center"}}>
       <B text={m.dir} color={m.dir==="IN"?C.g:C.r}/>
       <span style={{fontSize:9,color:m.type==="SWAP"?C.c:C.y,textTransform:"uppercase"}}>{m.type.length>8?m.type.slice(0,8):m.type}</span>
-      <span style={{color:C.t,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.sym}</span>
+      <span style={{color:C.t,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.mint?<a href={`https://birdeye.so/token/${m.mint}?chain=solana`} target="_blank" rel="noopener noreferrer" style={{color:C.c,fontWeight:600}} onClick={e=>e.stopPropagation()}>{m.sym}</a>:m.sym}</span>
       <span style={{textAlign:"right",color:C.t}}>{m.amt>1e6?`${(m.amt/1e6).toFixed(1)}M`:m.amt>1e3?`${(m.amt/1e3).toFixed(1)}K`:m.amt.toFixed(2)}</span>
       <span style={{textAlign:"right",color:m.val>0?C.t:C.tM}}>{m.val>0?$v(m.val):"—"}</span>
       <span style={{textAlign:"right",color:C.tS}}>{m.priceEa?fp(m.priceEa):"—"}</span>
