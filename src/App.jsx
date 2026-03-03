@@ -1,96 +1,389 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 
 const HELIUS_KEY = "efb053d6-f7c7-4c90-9bc5-0ce3af9c59df";
 const BIRDEYE_KEY = "94ba9de0953642878038f5a7eccc1114";
 const HELIUS_RPC = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_KEY}`;
-const HELIUS_API = `https://api.helius.xyz/v0`;
+const HELIUS_API = "https://api.helius.xyz/v0";
 const BIRDEYE = "https://public-api.birdeye.so";
-const DEX = "https://api.dexscreener.com";
-const birdH = { accept: "application/json", "x-chain": "solana", "X-API-KEY": BIRDEYE_KEY };
+const birdH = { accept:"application/json", "x-chain":"solana", "X-API-KEY":BIRDEYE_KEY };
 
-const T = { bg:"#07080b",bg1:"#0b0c10",bg2:"#0f1016",bg3:"#14151d",surface:"#181924",sHover:"#1d1e2c",brd:"#1c1d2c",brdL:"#24253a",tx:"#cdd1e4",txS:"#878ba4",txM:"#4e5270",txG:"#32354c",g:"#22c55e",gBg:"#22c55e0c",r:"#ef4444",rBg:"#ef44440c",a:"#eab308",aBg:"#eab3080c",b:"#3b82f6",p:"#8b5cf6",w:"#edf0ff",m:"'Geist Mono','JetBrains Mono','SF Mono',monospace",s:"'Geist','DM Sans',-apple-system,sans-serif" };
+const T={bg:"#060709",bg1:"#0a0b0f",bg2:"#0e0f14",bg3:"#13141b",s:"#1a1b24",sH:"#1f2030",brd:"#1a1b28",tx:"#c8cce0",txS:"#7d82a0",txM:"#484c68",txG:"#2e3148",g:"#10b981",gBg:"#10b98108",gBrd:"#10b98118",r:"#ef4444",rBg:"#ef444408",a:"#f59e0b",b:"#3b82f6",p:"#8b5cf6",w:"#eaecff",mono:"'Geist Mono','JetBrains Mono',monospace",sans:"'Geist','DM Sans',-apple-system,sans-serif"};
 
-const fmt=(n)=>{if(!n&&n!==0)return"—";if(n>=1e9)return`$${(n/1e9).toFixed(2)}B`;if(n>=1e6)return`$${(n/1e6).toFixed(2)}M`;if(n>=1e3)return`$${(n/1e3).toFixed(1)}K`;return`$${n.toFixed(0)}`};
-const fmtPct=(n)=>(!n&&n!==0)?"—":`${n>0?"+":""}${n.toFixed(1)}%`;
-const fmtAge=(ts)=>{if(!ts)return"—";const m=Math.floor((Date.now()-ts)/60000);if(m<60)return`${m}m`;const h=Math.floor(m/60);if(h<24)return`${h}h`;return`${Math.floor(h/24)}d`};
-const short=(a)=>a?`${a.slice(0,4)}...${a.slice(-4)}`:"—";
-const CHAINS={solana:{l:"SOL",c:"#9945FF"},ethereum:{l:"ETH",c:"#627EEA"},base:{l:"BASE",c:"#0052FF"}};
+const short=(a,n=4)=>a?`${a.slice(0,n)}...${a.slice(-n)}`:"—";
+const fmt=(n)=>{if(!n&&n!==0)return"—";if(n>=1e9)return`$${(n/1e9).toFixed(1)}B`;if(n>=1e6)return`$${(n/1e6).toFixed(2)}M`;if(n>=1e3)return`$${(n/1e3).toFixed(1)}K`;return`$${n.toFixed(0)}`};
+const fmtAge=(ts)=>{if(!ts)return"—";const s=Math.floor((Date.now()-ts)/1000);if(s<60)return`${s}s`;const m=Math.floor(s/60);if(m<60)return`${m}m`;const h=Math.floor(m/60);if(h<24)return`${h}h`;return`${Math.floor(h/24)}d`};
+const cp=(t)=>navigator.clipboard.writeText(t);
 
-/* API LAYER */
-async function dexFetch(url){const r=await fetch(url);if(!r.ok)throw new Error(`${r.status}`);return r.json()}
-async function getNewPairs(chain){try{const profiles=await dexFetch(`${DEX}/token-profiles/latest/v1`);const f=profiles.filter(p=>p.chainId===chain).slice(0,25);if(!f.length)return[];const addrs=[...new Set(f.map(p=>p.tokenAddress))];let all=[];for(let i=0;i<addrs.length;i+=30){try{const d=await dexFetch(`${DEX}/tokens/v1/${chain}/${addrs.slice(i,i+30).join(",")}`);if(Array.isArray(d))all=all.concat(d)}catch{}}return all}catch(e){console.error(e);return[]}}
-async function getBoosted(){try{return await dexFetch(`${DEX}/token-boosts/latest/v1`)}catch{return[]}}
+/* ═══ API ═══ */
+async function heliusSwaps(addr,limit=20){try{const r=await fetch(`${HELIUS_API}/addresses/${addr}/transactions?api-key=${HELIUS_KEY}&limit=${limit}&type=SWAP`);return r.ok?await r.json():[]}catch{return[]}}
+async function heliusAllTxns(addr,limit=15){try{const r=await fetch(`${HELIUS_API}/addresses/${addr}/transactions?api-key=${HELIUS_KEY}&limit=${limit}`);return r.ok?await r.json():[]}catch{return[]}}
+async function birdPortfolio(w){try{const r=await fetch(`${BIRDEYE}/v1/wallet/token_list?wallet=${w}`,{headers:birdH});const d=await r.json();return d.data?.items||[]}catch{return[]}}
+async function birdOverview(addr){try{const r=await fetch(`${BIRDEYE}/defi/token_overview?address=${addr}`,{headers:birdH});const d=await r.json();return d.data||null}catch{return null}}
 
-async function birdTokenSecurity(addr){try{const r=await fetch(`${BIRDEYE}/defi/token_security?address=${addr}`,{headers:birdH});const d=await r.json();return d.data||null}catch{return null}}
-async function birdTokenOverview(addr){try{const r=await fetch(`${BIRDEYE}/defi/token_overview?address=${addr}`,{headers:birdH});const d=await r.json();return d.data||null}catch{return null}}
-async function birdWalletPortfolio(wallet){try{const r=await fetch(`${BIRDEYE}/v1/wallet/token_list?wallet=${wallet}`,{headers:birdH});const d=await r.json();return d.data?.items||[]}catch{return[]}}
+function parseSwaps(txns){
+  const out=[];
+  for(const tx of txns){
+    if(tx.type!=="SWAP")continue;
+    const time=tx.timestamp?tx.timestamp*1000:Date.now();
+    const sig=tx.signature||"";
+    const src=tx.source||"";
+    let action="SWAP",mint="",solAmt=0;
+    const tOut=tx.events?.swap?.tokenOutputs?.[0];
+    const tIn=tx.events?.swap?.tokenInputs?.[0];
+    const nIn=tx.events?.swap?.nativeInput;
+    const nOut=tx.events?.swap?.nativeOutput;
+    if(tOut?.mint&&tOut.mint!=="So11111111111111111111111111111111"){action="BUY";mint=tOut.mint}
+    else if(tIn?.mint&&tIn.mint!=="So11111111111111111111111111111111"){action="SELL";mint=tIn.mint}
+    if(nIn?.amount)solAmt=nIn.amount/1e9;
+    if(nOut?.amount&&action==="SELL")solAmt=nOut.amount/1e9;
+    if(mint)out.push({action,mint,solAmt,time,sig,src,desc:tx.description||""});
+  }
+  return out;
+}
 
-async function heliusRpc(method,params){try{const r=await fetch(HELIUS_RPC,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method,params})});const d=await r.json();return d.result||null}catch{return null}}
-async function getTopHolders(mint){const r=await heliusRpc("getTokenLargestAccounts",[mint]);return r?.value||[]}
-async function getTokenSupply(mint){const r=await heliusRpc("getTokenSupply",[mint]);return r?.value||null}
-async function getRecentSignatures(addr,limit=15){return(await heliusRpc("getSignaturesForAddress",[addr,{limit}]))||[]}
-async function getTokenAccounts(wallet){const r=await heliusRpc("getTokenAccountsByOwner",[wallet,{programId:"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{encoding:"jsonParsed"}]);return r?.value||[]}
-async function heliusParsedTxns(addr,limit=10){try{const r=await fetch(`${HELIUS_API}/addresses/${addr}/transactions?api-key=${HELIUS_KEY}&limit=${limit}`);if(!r.ok)return[];return await r.json()}catch{return[]}}
+/* ═══ WALLET DB ═══ */
+const INIT_WALLETS=[
+  {addr:"AC2RiUxrJFe1AJMcSz2QLwGGJESTit67JFoc7YB4rBbq",tag:"WHALE-A",notes:"Consistent 5-10x, early narratives",tier:1},
+  {addr:"FnMtJFpGYoAQTJPJnwDHFQnxTPJdbnEMfJM1PwfaKVmt",tag:"DEGEN-1",notes:"High frequency, catches pumps",tier:1},
+  {addr:"5GmLJQiYuCMNnEv4PoVWkfz1hUG3oTPzA6sDFwusLiVJ",tag:"SNIPER-1",notes:"Snipes launches, fast exits",tier:1},
+  {addr:"HNoEt8Jd2gPRaN66HXnCGEHZMwqk4RcaLEJ8UiYq4JbV",tag:"WHALE-B",notes:"Big size, holds longer",tier:2},
+  {addr:"Cz1kHi3eFKZSHFMk6sbcbVhDfPLtojPgmrv72KFSkbRN",tag:"SMART-1",notes:"Good risk mgmt",tier:2},
+  {addr:"8rvz2Bg4DP32KxyTr2N1REXFBEQwBqPaACrCEZNyN4Lq",tag:"ALPHA-1",notes:"Finds tokens before CT",tier:2},
+  {addr:"GmEFwJRTicRNJbiFqxPBEFVFnMYTwWaKon7oNPHZcaeh",tag:"FLIPPER",notes:"Quick flips, high WR",tier:2},
+];
 
-function norm(p){const bt=p.baseToken||{},qt=p.quoteToken||{},tx=p.txns||{},v=p.volume||{},pc=p.priceChange||{},lq=p.liquidity||{},info=p.info||{};const b5=tx.m5?.buys||0,s5=tx.m5?.sells||0,b1=tx.h1?.buys||0,s1=tx.h1?.sells||0,b24=tx.h24?.buys||0,s24=tx.h24?.sells||0;const t5=b5+s5,t1=b1+s1;return{id:p.pairAddress||Math.random().toString(36).slice(2),name:bt.symbol?`$${bt.symbol}`:"???",fullName:bt.name||"",addr:bt.address||"",pair:p.pairAddress||"",chain:p.chainId||"solana",dex:p.dexId||"",mc:p.marketCap||p.fdv||0,fdv:p.fdv||0,liq:lq.usd||0,price:parseFloat(p.priceUsd)||0,age:p.pairCreatedAt||0,v5m:v.m5||0,v1h:v.h1||0,v6h:v.h6||0,v24h:v.h24||0,pc5m:pc.m5||0,pc1h:pc.h1||0,pc6h:pc.h6||0,pc24h:pc.h24||0,b5,s5,b1,s1,b24,s24,bp5:t5>0?b5/t5*100:50,bp1:t1>0?b1/t1*100:50,tx5:t5,tx1:t1,tx24:b24+s24,qSym:qt.symbol||"SOL",img:info.imageUrl||null,web:info.websites||[],soc:info.socials||[],boost:p.boosts?.active||0}}
+/* ═══ UI ATOMS ═══ */
+const Badge=({children,color=T.g})=><span style={{fontSize:8,padding:"2px 6px",borderRadius:2,background:`${color}0d`,color,fontFamily:T.mono,fontWeight:700,letterSpacing:.5,border:`1px solid ${color}15`}}>{children}</span>;
+const TierBadge=({tier})=><Badge color={tier===1?T.g:tier===2?T.b:T.txM}>{tier===1?"T1":tier===2?"T2":"T3"}</Badge>;
+const ActionTag=({action})=><span style={{fontSize:10,fontWeight:800,color:action==="BUY"?T.g:action==="SELL"?T.r:T.txM,fontFamily:T.mono,letterSpacing:.5,minWidth:28,display:"inline-block"}}>{action}</span>;
 
-const SMART_WALLETS=[{addr:"FnMtJFpGYoAQTJPJnwDHFQnxTPJdbnEMfJM1PwfaKVmt",label:"SW-1",pnl:">$2M"},{addr:"5GmLJQiYuCMNnEv4PoVWkfz1hUG3oTPzA6sDFwusLiVJ",label:"SW-2",pnl:">$1M"},{addr:"HNoEt8Jd2gPRaN66HXnCGEHZMwqk4RcaLEJ8UiYq4JbV",label:"SW-3",pnl:">$800K"},{addr:"Cz1kHi3eFKZSHFMk6sbcbVhDfPLtojPgmrv72KFSkbRN",label:"SW-4",pnl:">$500K"},{addr:"8rvz2Bg4DP32KxyTr2N1REXFBEQwBqPaACrCEZNyN4Lq",label:"SW-5",pnl:">$500K"},{addr:"GmEFwJRTicRNJbiFqxPBEFVFnMYTwWaKon7oNPHZcaeh",label:"SW-6",pnl:">$400K"}];
+const CopyBtn=({text,label="COPY"})=>{const[ok,setOk]=useState(false);return<button onClick={e=>{e.stopPropagation();cp(text);setOk(true);setTimeout(()=>setOk(false),1200)}} style={{padding:"3px 8px",borderRadius:3,border:`1px solid ${ok?T.g+"30":T.brd}`,background:ok?T.gBg:"transparent",color:ok?T.g:T.txM,fontSize:8,fontWeight:700,fontFamily:T.mono,cursor:"pointer",letterSpacing:.5}}>{ok?"✓":label}</button>};
+const AxiomBtn=({mint})=><a href={`https://axiom.trade/t/${mint}/`} target="_blank" rel="noopener noreferrer" style={{padding:"3px 8px",borderRadius:3,border:`1px solid ${T.g}20`,background:T.gBg,color:T.g,fontSize:8,fontWeight:700,fontFamily:T.mono,textDecoration:"none",letterSpacing:.5}} onMouseEnter={e=>{e.currentTarget.style.background=T.g+"15"}} onMouseLeave={e=>{e.currentTarget.style.background=T.gBg}}>AXIOM ↗</a>;
+const DexBtn=({addr})=><a href={`https://dexscreener.com/solana/${addr}`} target="_blank" rel="noopener noreferrer" style={{padding:"3px 8px",borderRadius:3,border:`1px solid ${T.b}20`,background:`${T.b}08`,color:T.b,fontSize:8,fontWeight:700,fontFamily:T.mono,textDecoration:"none",letterSpacing:.5}}>DEX ↗</a>;
 
-/* UI */
-const CP=({chain})=>{const m=CHAINS[chain]||{l:"?",c:"#666"};return<span style={{fontSize:9,fontWeight:600,letterSpacing:.5,color:m.c,fontFamily:T.m}}>{m.l}</span>};
-const Dv=({v,sz=11})=>{if(v==null||isNaN(v))return<span style={{color:T.txM,fontSize:sz,fontFamily:T.m}}>—</span>;return<span style={{fontSize:sz,fontWeight:600,color:v>0?T.g:v<0?T.r:T.txM,fontFamily:T.m}}>{fmtPct(v)}</span>};
-const BSBar=({p:pct,w=40})=>{const p=Math.max(0,Math.min(100,pct));return<div style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:w,height:3,borderRadius:1,background:T.rBg,overflow:"hidden"}}><div style={{width:`${p}%`,height:"100%",background:p>60?T.g:p>45?T.a:T.r,opacity:.6}}/></div><span style={{fontSize:9,fontFamily:T.m,color:p>60?T.g:p>45?T.txS:T.r,fontWeight:500,minWidth:16}}>{p.toFixed(0)}</span></div>};
-const Badge=({children,color=T.g})=><span style={{fontSize:8,padding:"2px 5px",borderRadius:2,background:`${color}10`,color,fontFamily:T.m,fontWeight:700,letterSpacing:.4,border:`1px solid ${color}18`,whiteSpace:"nowrap"}}>{children}</span>;
-const Pill=({active,onClick,children})=><button onClick={onClick} style={{padding:"5px 12px",borderRadius:3,border:"none",cursor:"pointer",fontSize:9,fontWeight:600,letterSpacing:.8,fontFamily:T.m,background:active?T.gBg:"transparent",color:active?T.g:T.txM,transition:"all .15s"}}>{children}</button>;
-const Section=({children})=><div style={{fontSize:10,fontWeight:700,letterSpacing:2.5,color:T.txM,fontFamily:T.m,textTransform:"uppercase",marginBottom:10,paddingBottom:6,borderBottom:`1px solid ${T.brd}`}}>{children}</div>;
-const Stat=({label,value,warn,danger,accent,sub})=><div><div style={{fontSize:9,color:T.txM,letterSpacing:.8,fontWeight:500,fontFamily:T.m,marginBottom:3,textTransform:"uppercase"}}>{label}</div><div style={{fontSize:13,fontWeight:600,fontFamily:T.m,color:danger?T.r:warn?T.a:accent?T.g:T.w,lineHeight:1}}>{value}</div>{sub&&<div style={{fontSize:9,color:T.txM,fontFamily:T.m,marginTop:2}}>{sub}</div>}</div>;
-const TH=({onClick,active,dir,children,w})=><th onClick={onClick} style={{padding:"10px 8px",textAlign:"right",fontSize:9,fontWeight:600,letterSpacing:1,color:active?T.g:T.txM,fontFamily:T.m,cursor:onClick?"pointer":"default",textTransform:"uppercase",whiteSpace:"nowrap",width:w,borderBottom:`1px solid ${T.brd}`,position:"sticky",top:0,background:T.bg2,zIndex:2,userSelect:"none"}}>{children}{active&&<span style={{opacity:.4,marginLeft:3}}>{dir===-1?"↓":"↑"}</span>}</th>;
+/* ═══ TOKEN INFO CACHE ═══ */
+const tokenCache = {};
+function useTokenInfo(mints) {
+  const [info, setInfo] = useState({});
+  useEffect(() => {
+    const toFetch = mints.filter(m => m && !tokenCache[m] && !info[m]);
+    if (!toFetch.length) return;
+    let cancelled = false;
+    (async () => {
+      for (const mint of toFetch.slice(0, 12)) {
+        if (cancelled) break;
+        const data = await birdOverview(mint);
+        if (data) {
+          tokenCache[mint] = data;
+          if (!cancelled) setInfo(p => ({ ...p, [mint]: data }));
+        }
+        await new Promise(r => setTimeout(r, 200)); // rate limit
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [mints.join(",")]);
+  return { ...tokenCache, ...info };
+}
 
-/* SMART WALLET TRACKER */
-const SmartWalletTracker=()=>{const[walletData,setWalletData]=useState([]);const[loading,setLoading]=useState(false);const[customWallet,setCustomWallet]=useState("");const[wallets,setWallets]=useState(SMART_WALLETS);const[expanded,setExpanded]=useState(null);const[wTokens,setWTokens]=useState({});const[wTxns,setWTxns]=useState({});
-const track=useCallback(async()=>{setLoading(true);const res=[];for(const w of wallets){try{const sigs=await getRecentSignatures(w.addr,15);res.push({...w,recentTxns:sigs.length,lastActive:sigs[0]?.blockTime?new Date(sigs[0].blockTime*1000):null})}catch{res.push({...w,recentTxns:0,lastActive:null})}}setWalletData(res);setLoading(false)},[wallets]);
-useEffect(()=>{track()},[track]);
-const loadDetail=async(addr)=>{if(expanded===addr){setExpanded(null);return}setExpanded(addr);if(!wTokens[addr]){const bt=await birdWalletPortfolio(addr);if(bt.length>0){setWTokens(p=>({...p,[addr]:bt.filter(t=>t.uiAmount>0&&t.symbol!=="SOL").sort((a,b)=>(b.valueUsd||0)-(a.valueUsd||0)).slice(0,20).map(t=>({mint:t.address,symbol:t.symbol||"???",amount:t.uiAmount,valueUsd:t.valueUsd||0}))}))}else{const accs=await getTokenAccounts(addr);setWTokens(p=>({...p,[addr]:accs.map(a=>({mint:a.account.data.parsed.info.mint,symbol:"???",amount:parseFloat(a.account.data.parsed.info.tokenAmount.uiAmountString||"0"),valueUsd:0})).filter(a=>a.amount>0).sort((a,b)=>b.amount-a.amount).slice(0,20)}))}}if(!wTxns[addr]){const txns=await heliusParsedTxns(addr,10);setWTxns(p=>({...p,[addr]:txns.slice(0,10).map(tx=>({sig:tx.signature?.slice(0,8)||"?",type:tx.type||"UNKNOWN",desc:tx.description||"",time:tx.timestamp?new Date(tx.timestamp*1000):null,src:tx.source||""}))}))}}
-const addW=()=>{if(!customWallet.trim()||customWallet.length<32)return;setWallets(p=>[...p,{addr:customWallet.trim(),label:`Custom-${p.length+1}`,pnl:"?"}]);setCustomWallet("")};
-return<div><Section>Smart Wallet Tracker</Section><div style={{display:"flex",gap:6,marginBottom:10}}><Badge color={T.g}>HELIUS</Badge><Badge color={T.p}>BIRDEYE</Badge><span style={{fontSize:9,color:T.txM,fontFamily:T.m,alignSelf:"center",marginLeft:4}}>Parsed txns via Helius · Portfolio via Birdeye</span></div>
-<div style={{display:"flex",gap:8,marginBottom:14}}><input value={customWallet} onChange={e=>setCustomWallet(e.target.value)} placeholder="Paste wallet address to track..." style={{flex:1,padding:"7px 12px",borderRadius:4,background:T.bg2,border:`1px solid ${T.brd}`,color:T.tx,fontSize:11,fontFamily:T.m,outline:"none"}} onKeyDown={e=>e.key==="Enter"&&addW()} onFocus={e=>e.target.style.borderColor=T.g+"40"} onBlur={e=>e.target.style.borderColor=T.brd}/><button onClick={addW} style={{padding:"7px 16px",borderRadius:4,background:T.gBg,border:`1px solid ${T.g}25`,color:T.g,fontSize:9,fontWeight:700,letterSpacing:1,fontFamily:T.m,cursor:"pointer"}}>+ ADD</button><button onClick={track} style={{padding:"7px 16px",borderRadius:4,background:T.bg2,border:`1px solid ${T.brd}`,color:loading?T.txM:T.txS,fontSize:9,fontWeight:600,letterSpacing:1,fontFamily:T.m,cursor:loading?"default":"pointer"}}>{loading?"···":"REFRESH"}</button></div>
-<div style={{display:"flex",flexDirection:"column",gap:4}}>{(walletData.length?walletData:wallets).map((w,i)=><div key={w.addr}><div onClick={()=>loadDetail(w.addr)} style={{display:"grid",gridTemplateColumns:"80px 1fr 70px 100px 80px",alignItems:"center",gap:8,padding:"10px 12px",background:expanded===w.addr?T.gBg:i%2===0?"transparent":T.bg2+"30",borderRadius:4,cursor:"pointer",transition:"background .1s",border:expanded===w.addr?`1px solid ${T.g}20`:`1px solid transparent`}} onMouseEnter={e=>{if(expanded!==w.addr)e.currentTarget.style.background=T.sHover}} onMouseLeave={e=>{if(expanded!==w.addr)e.currentTarget.style.background=i%2===0?"transparent":T.bg2+"30"}}><span style={{fontSize:11,fontWeight:700,color:T.g,fontFamily:T.m}}>{w.label}</span><span style={{fontSize:10,color:T.txM,fontFamily:T.m}}>{short(w.addr)}</span><span style={{fontSize:10,color:T.txS,fontFamily:T.m}}>{w.pnl}</span><span style={{fontSize:10,color:w.recentTxns>5?T.g:T.txS,fontFamily:T.m}}>{w.recentTxns!=null?`${w.recentTxns} txns`:"—"}</span><span style={{fontSize:9,color:T.txM,fontFamily:T.m}}>{w.lastActive?fmtAge(w.lastActive.getTime())+" ago":"—"}</span></div>
-{expanded===w.addr&&<div style={{padding:"12px 12px 16px 20px",borderLeft:`2px solid ${T.g}20`,marginLeft:12,marginBottom:8}}><div style={{fontSize:9,color:T.g,fontFamily:T.m,letterSpacing:1.5,fontWeight:700,marginBottom:8}}>TOKEN HOLDINGS</div>{!wTokens[w.addr]?<span style={{fontSize:10,color:T.txM,fontFamily:T.m}}>Loading...</span>:wTokens[w.addr].length===0?<span style={{fontSize:10,color:T.txM,fontFamily:T.m}}>No tokens</span>:<div style={{display:"flex",flexDirection:"column",gap:2,marginBottom:16}}>{wTokens[w.addr].map((tk,j)=><div key={j} style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 70px",alignItems:"center",gap:6,padding:"4px 8px",borderRadius:3,background:j%2===0?"transparent":T.bg2+"20",fontSize:10,fontFamily:T.m}}><span style={{color:T.b,fontWeight:600}}>{tk.symbol}</span><span style={{color:T.txG,cursor:"pointer"}} onClick={e=>{e.stopPropagation();navigator.clipboard.writeText(tk.mint)}}>{short(tk.mint)}</span><span style={{color:T.txS,textAlign:"right"}}>{tk.amount>1e6?`${(tk.amount/1e6).toFixed(1)}M`:tk.amount>1e3?`${(tk.amount/1e3).toFixed(1)}K`:tk.amount.toFixed(2)}</span><span style={{color:tk.valueUsd>100?T.g:T.txM,textAlign:"right",fontWeight:600}}>{tk.valueUsd>0?fmt(tk.valueUsd):"—"}</span></div>)}</div>}
-<div style={{fontSize:9,color:T.p,fontFamily:T.m,letterSpacing:1.5,fontWeight:700,marginBottom:8}}>RECENT TRANSACTIONS</div>{!wTxns[w.addr]?<span style={{fontSize:10,color:T.txM,fontFamily:T.m}}>Loading...</span>:wTxns[w.addr].length===0?<span style={{fontSize:10,color:T.txM,fontFamily:T.m}}>No parsed txns</span>:<div style={{display:"flex",flexDirection:"column",gap:3}}>{wTxns[w.addr].map((tx,j)=><div key={j} style={{display:"grid",gridTemplateColumns:"70px 80px 1fr 60px",gap:6,padding:"4px 8px",borderRadius:3,background:j%2===0?"transparent":T.bg2+"20",fontSize:10,fontFamily:T.m}}><span style={{color:tx.type==="SWAP"?T.g:tx.type==="TRANSFER"?T.b:T.txS,fontWeight:600}}>{tx.type}</span><span style={{color:T.txM}}>{tx.src}</span><span style={{color:T.txS,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tx.desc||tx.sig+"..."}</span><span style={{color:T.txM,textAlign:"right"}}>{tx.time?fmtAge(tx.time.getTime()):"—"}</span></div>)}</div>}</div>}</div>)}</div></div>};
+/* ═══ LIVE FEED ═══ */
+const LiveFeed = ({ wallets }) => {
+  const [trades, setTrades] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [filter, setFilter] = useState("ALL");
 
-/* BUNDLE DETECTOR */
-const BundleDetector=()=>{const[mintAddr,setMintAddr]=useState("");const[result,setResult]=useState(null);const[loading,setLoading]=useState(false);
-const analyze=async()=>{if(!mintAddr.trim())return;setLoading(true);setResult(null);try{const[holders,supply,birdSec,birdOver]=await Promise.all([getTopHolders(mintAddr.trim()),getTokenSupply(mintAddr.trim()),birdTokenSecurity(mintAddr.trim()),birdTokenOverview(mintAddr.trim())]);const totalSupply=supply?parseFloat(supply.uiAmountString||supply.amount||"0"):0;const ha=holders.map(h=>{const amt=parseFloat(h.uiAmount||h.amount||"0");const pct=totalSupply>0?(amt/totalSupply*100):0;return{address:h.address,amount:amt,pct}}).sort((a,b)=>b.pct-a.pct);const top10=ha.slice(0,10).reduce((s,h)=>s+h.pct,0);const top5=ha.slice(0,5).reduce((s,h)=>s+h.pct,0);const top1=ha[0]?.pct||0;const clusters=[];for(let i=0;i<ha.length-1;i++){for(let j=i+1;j<ha.length;j++){if(Math.abs(ha[i].pct-ha[j].pct)<0.5&&ha[i].pct>2){const ex=clusters.find(c=>Math.abs(c.pct-ha[i].pct)<0.5);if(ex){ex.count++;ex.totalPct+=ha[j].pct}else clusters.push({pct:ha[i].pct,count:2,totalPct:ha[i].pct+ha[j].pct})}}}const risk=top1>20?"CRITICAL":top5>50?"HIGH":top10>60?"MEDIUM":clusters.length>0?"WATCH":"LOW";setResult({holders:ha,totalSupply,top1pct:top1,top5pct:top5,top10pct:top10,bundleRisk:risk,clusters,birdSec:birdSec||{},birdOver:birdOver||{}})}catch(e){setResult({error:e.message})}setLoading(false)};
-const rc={CRITICAL:T.r,HIGH:T.r,MEDIUM:T.a,WATCH:T.a,LOW:T.g};const r=result;
-return<div><Section>Bundle & Sniper Detector</Section><div style={{display:"flex",gap:6,marginBottom:10}}><Badge color={T.g}>HELIUS ON-CHAIN</Badge><Badge color={T.p}>BIRDEYE SECURITY</Badge></div>
-<div style={{display:"flex",gap:8,marginBottom:14}}><input value={mintAddr} onChange={e=>setMintAddr(e.target.value)} placeholder="Paste token mint address (CA)..." style={{flex:1,padding:"7px 12px",borderRadius:4,background:T.bg2,border:`1px solid ${T.brd}`,color:T.tx,fontSize:11,fontFamily:T.m,outline:"none"}} onKeyDown={e=>e.key==="Enter"&&analyze()} onFocus={e=>e.target.style.borderColor=T.g+"40"} onBlur={e=>e.target.style.borderColor=T.brd}/><button onClick={analyze} disabled={loading} style={{padding:"7px 20px",borderRadius:4,background:loading?T.bg2:T.gBg,border:`1px solid ${loading?T.brd:T.g+"25"}`,color:loading?T.txM:T.g,fontSize:9,fontWeight:700,letterSpacing:1,fontFamily:T.m,cursor:loading?"default":"pointer"}}>{loading?"SCANNING...":"ANALYZE"}</button></div>
-{r&&!r.error&&<div><div style={{padding:"14px 18px",borderRadius:6,marginBottom:14,background:`${rc[r.bundleRisk]}08`,border:`1px solid ${rc[r.bundleRisk]}20`}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div><div style={{fontSize:9,color:T.txM,fontFamily:T.m,letterSpacing:1,marginBottom:4}}>BUNDLE RISK</div><div style={{fontSize:22,fontWeight:800,color:rc[r.bundleRisk],fontFamily:T.m}}>{r.bundleRisk}</div></div><div style={{display:"flex",gap:20}}><Stat label="Top 1" value={`${r.top1pct.toFixed(1)}%`} danger={r.top1pct>20} warn={r.top1pct>10}/><Stat label="Top 5" value={`${r.top5pct.toFixed(1)}%`} danger={r.top5pct>50} warn={r.top5pct>30}/><Stat label="Top 10" value={`${r.top10pct.toFixed(1)}%`} danger={r.top10pct>60} warn={r.top10pct>40}/></div></div>
-{r.birdOver&&(r.birdOver.symbol||r.birdOver.mc)&&<div style={{display:"grid",gridTemplateColumns:"repeat(5, 1fr)",gap:14,paddingTop:12,borderTop:`1px solid ${rc[r.bundleRisk]}15`}}><Stat label="Name" value={r.birdOver.symbol||"?"}/><Stat label="MC" value={fmt(r.birdOver.mc||r.birdOver.marketCap||0)}/><Stat label="Liquidity" value={fmt(r.birdOver.liquidity||0)}/><Stat label="Holders" value={(r.birdOver.holder||0).toLocaleString()}/><Stat label="24h Vol" value={fmt(r.birdOver.v24hUSD||0)}/></div>}
-{r.birdSec&&Object.keys(r.birdSec).length>0&&<div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:14,marginTop:14,paddingTop:12,borderTop:`1px solid ${rc[r.bundleRisk]}15`}}>{r.birdSec.freezeAuthority!==undefined&&<Stat label="Freeze Auth" value={r.birdSec.freezeAuthority?"YES":"NO"} danger={!!r.birdSec.freezeAuthority}/>}{r.birdSec.mintAuthority!==undefined&&<Stat label="Mint Auth" value={r.birdSec.mintAuthority?"YES":"NO"} danger={!!r.birdSec.mintAuthority}/>}{r.birdSec.top10HolderPercent!==undefined&&<Stat label="Top10 (Bird)" value={`${(r.birdSec.top10HolderPercent*100).toFixed(1)}%`} danger={r.birdSec.top10HolderPercent>0.6} warn={r.birdSec.top10HolderPercent>0.4}/>}{r.birdSec.creatorPercentage!==undefined&&<Stat label="Creator %" value={`${(r.birdSec.creatorPercentage*100).toFixed(1)}%`} danger={r.birdSec.creatorPercentage>0.1} warn={r.birdSec.creatorPercentage>0.05}/>}{r.birdSec.ownerPercentage!==undefined&&<Stat label="Owner %" value={`${(r.birdSec.ownerPercentage*100).toFixed(1)}%`} danger={r.birdSec.ownerPercentage>0.15}/>}{r.birdSec.creationTime&&<Stat label="Created" value={fmtAge(r.birdSec.creationTime*1000)}/>}</div>}</div>
-{r.clusters.length>0&&<div style={{padding:"10px 14px",borderRadius:4,marginBottom:14,background:T.rBg,border:`1px solid ${T.r}15`}}><div style={{fontSize:9,color:T.r,fontFamily:T.m,letterSpacing:1,fontWeight:700,marginBottom:6}}>⚠ SUSPICIOUS CLUSTERS DETECTED</div>{r.clusters.map((c,i)=><div key={i} style={{fontSize:10,color:T.txS,fontFamily:T.m,padding:"2px 0"}}>{c.count} wallets each ~{c.pct.toFixed(1)}% — combined {c.totalPct.toFixed(1)}%</div>)}</div>}
-<div style={{fontSize:9,color:T.txM,fontFamily:T.m,letterSpacing:1,marginBottom:8}}>TOP HOLDERS (HELIUS)</div><div style={{display:"flex",flexDirection:"column",gap:2}}>{r.holders.slice(0,20).map((h,i)=><div key={i} style={{display:"grid",gridTemplateColumns:"28px 1fr 80px 60px",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:3,background:i%2===0?"transparent":T.bg2+"30"}}><span style={{fontSize:9,color:T.txM,fontFamily:T.m,fontWeight:600}}>#{i+1}</span><span style={{fontSize:10,color:h.pct>10?T.r:T.b,fontFamily:T.m,cursor:"pointer"}} onClick={()=>navigator.clipboard.writeText(h.address)}>{short(h.address)}</span><div style={{height:3,borderRadius:1,background:T.bg,overflow:"hidden"}}><div style={{width:`${Math.min(h.pct,100)}%`,height:"100%",borderRadius:1,background:h.pct>15?T.r:h.pct>5?T.a:T.g,opacity:.6}}/></div><span style={{fontSize:10,fontWeight:600,color:h.pct>15?T.r:h.pct>5?T.a:T.txS,fontFamily:T.m,textAlign:"right"}}>{h.pct.toFixed(2)}%</span></div>)}</div></div>}
-{r?.error&&<div style={{padding:16,borderRadius:4,background:T.rBg,border:`1px solid ${T.r}20`,color:T.r,fontSize:11,fontFamily:T.m}}>Error: {r.error}</div>}
-{!r&&!loading&&<div style={{padding:32,textAlign:"center",color:T.txM,fontSize:11,fontFamily:T.m,background:T.bg2,borderRadius:6,border:`1px solid ${T.brd}`}}>Paste a CA above. Pulls holders from Helius + security from Birdeye.</div>}</div>};
+  const loadFeed = useCallback(async () => {
+    setLoading(true);
+    const all = [];
+    // Parallel fetch all wallets
+    const results = await Promise.allSettled(
+      wallets.map(async w => {
+        const txns = await heliusSwaps(w.addr, 15);
+        return parseSwaps(txns).map(s => ({ ...s, wallet: w.tag, walletAddr: w.addr, tier: w.tier }));
+      })
+    );
+    results.forEach(r => { if (r.status === "fulfilled") all.push(...r.value); });
+    all.sort((a, b) => b.time - a.time);
+    setTrades(all.slice(0, 80));
+    setLoading(false);
+  }, [wallets]);
 
-/* TOKEN SCREENER */
-const TokenScreener=({pairs,boosted,loading:pL})=>{const[filters,setFilters]=useState({minLiq:5000,maxLiq:Infinity,minMc:0,maxMc:5000000,minVol5m:0,minBuyPct:50,maxAge:Infinity,onlyBoosted:false});const[sortKey,setSortKey]=useState("v5m");const[sortDir,setSortDir]=useState(-1);const boostSet=useMemo(()=>new Set(boosted.map(b=>b.tokenAddress)),[boosted]);
-const filtered=useMemo(()=>{let d=pairs.filter(t=>{if(t.liq<filters.minLiq)return false;if(filters.maxLiq!==Infinity&&t.liq>filters.maxLiq)return false;if(t.mc<filters.minMc)return false;if(filters.maxMc!==Infinity&&t.mc>filters.maxMc)return false;if(t.v5m<filters.minVol5m)return false;if(t.bp5<filters.minBuyPct)return false;if(filters.maxAge!==Infinity&&t.age&&(Date.now()-t.age)>filters.maxAge)return false;if(filters.onlyBoosted&&!boostSet.has(t.addr))return false;return true});d.sort((a,b)=>((b[sortKey]??0)-(a[sortKey]??0))*sortDir);return d},[pairs,filters,sortKey,sortDir,boostSet]);
-const doSort=(k)=>{if(sortKey===k)setSortDir(d=>d*-1);else{setSortKey(k);setSortDir(-1)}};const setF=(k,v)=>setFilters(p=>({...p,[k]:v}));
-const FI=({label,value,onChange,placeholder,w=64})=><div style={{display:"flex",flexDirection:"column",gap:3}}><span style={{fontSize:8,color:T.txM,fontFamily:T.m,letterSpacing:.8,textTransform:"uppercase"}}>{label}</span><input value={value===Infinity?"":value} onChange={e=>onChange(e.target.value===""?(label.includes("Max")?Infinity:0):Number(e.target.value))} placeholder={placeholder} style={{width:w,padding:"4px 6px",borderRadius:3,background:T.bg2,border:`1px solid ${T.brd}`,color:T.tx,fontSize:10,fontFamily:T.m,outline:"none"}} onFocus={e=>e.target.style.borderColor=T.g+"40"} onBlur={e=>e.target.style.borderColor=T.brd}/></div>;
-return<div><Section>Token Screener</Section><div style={{display:"flex",flexWrap:"wrap",gap:10,padding:"12px 14px",background:T.bg2,borderRadius:6,border:`1px solid ${T.brd}`,marginBottom:14,alignItems:"flex-end"}}><FI label="Min Liq ($)" value={filters.minLiq} onChange={v=>setF("minLiq",v)} placeholder="5000"/><FI label="Max Liq ($)" value={filters.maxLiq} onChange={v=>setF("maxLiq",v)} placeholder="∞"/><FI label="Min MC ($)" value={filters.minMc} onChange={v=>setF("minMc",v)} placeholder="0"/><FI label="Max MC ($)" value={filters.maxMc} onChange={v=>setF("maxMc",v)} placeholder="5000000"/><FI label="Min Vol 5m" value={filters.minVol5m} onChange={v=>setF("minVol5m",v)} placeholder="0"/><FI label="Min Buy %" value={filters.minBuyPct} onChange={v=>setF("minBuyPct",v)} placeholder="50" w={48}/>
-<div style={{display:"flex",flexDirection:"column",gap:3}}><span style={{fontSize:8,color:T.txM,fontFamily:T.m,letterSpacing:.8}}>MAX AGE</span><div style={{display:"flex",gap:2}}>{[["1h",3600000],["6h",21600000],["24h",86400000],["∞",Infinity]].map(([l,v])=><button key={l} onClick={()=>setF("maxAge",v)} style={{padding:"4px 8px",borderRadius:2,border:"none",cursor:"pointer",fontSize:9,fontWeight:600,fontFamily:T.m,background:filters.maxAge===v?T.gBg:"transparent",color:filters.maxAge===v?T.g:T.txM}}>{l}</button>)}</div></div>
-<button onClick={()=>setF("onlyBoosted",!filters.onlyBoosted)} style={{padding:"4px 10px",borderRadius:3,border:`1px solid ${filters.onlyBoosted?T.g+"30":T.brd}`,background:filters.onlyBoosted?T.gBg:"transparent",color:filters.onlyBoosted?T.g:T.txM,fontSize:9,fontWeight:600,fontFamily:T.m,cursor:"pointer",alignSelf:"flex-end"}}>BOOSTED ONLY</button><div style={{flex:1}}/><span style={{fontSize:9,color:T.g,fontFamily:T.m,fontWeight:600,alignSelf:"flex-end"}}>{filtered.length} matches</span></div>
-<div style={{overflowX:"auto",border:`1px solid ${T.brd}`,borderRadius:6}}><table><thead><tr><th style={{padding:"10px 8px 10px 14px",textAlign:"left",fontSize:9,fontWeight:600,letterSpacing:1,color:T.txM,fontFamily:T.m,borderBottom:`1px solid ${T.brd}`,position:"sticky",top:0,background:T.bg2,zIndex:2,minWidth:170}}>TOKEN</th><TH onClick={()=>doSort("mc")} active={sortKey==="mc"} dir={sortDir} w={76}>MC</TH><TH onClick={()=>doSort("liq")} active={sortKey==="liq"} dir={sortDir} w={68}>LIQ</TH><TH onClick={()=>doSort("v5m")} active={sortKey==="v5m"} dir={sortDir} w={64}>V 5m</TH><TH onClick={()=>doSort("v1h")} active={sortKey==="v1h"} dir={sortDir} w={64}>V 1h</TH><TH onClick={()=>doSort("v24h")} active={sortKey==="v24h"} dir={sortDir} w={68}>V 24h</TH><TH onClick={()=>doSort("pc5m")} active={sortKey==="pc5m"} dir={sortDir} w={58}>Δ5m</TH><TH onClick={()=>doSort("pc1h")} active={sortKey==="pc1h"} dir={sortDir} w={58}>Δ1h</TH><th style={{padding:"10px 8px",textAlign:"right",fontSize:9,fontWeight:600,letterSpacing:1,color:T.txM,fontFamily:T.m,borderBottom:`1px solid ${T.brd}`,position:"sticky",top:0,background:T.bg2,zIndex:2,width:66}}>B/S</th><TH onClick={()=>doSort("tx24")} active={sortKey==="tx24"} dir={sortDir} w={56}>TXN</TH><th style={{padding:"10px 8px",fontSize:9,fontWeight:600,letterSpacing:1,color:T.txM,fontFamily:T.m,borderBottom:`1px solid ${T.brd}`,position:"sticky",top:0,background:T.bg2,zIndex:2,width:44}}>AGE</th></tr></thead>
-<tbody>{filtered.map((t,i)=><tr key={t.id+i} style={{cursor:"pointer",background:i%2===0?"transparent":T.bg2+"30"}} onMouseEnter={e=>e.currentTarget.style.background=T.sHover} onMouseLeave={e=>e.currentTarget.style.background=i%2===0?"transparent":T.bg2+"30"}><td style={{padding:"8px 8px 8px 14px"}}><div style={{display:"flex",alignItems:"center",gap:7}}>{t.img&&<img src={t.img} alt="" style={{width:18,height:18,borderRadius:4}} onError={e=>e.target.style.display="none"}/>}<div><div style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontSize:11,fontWeight:600,color:T.w,fontFamily:T.s}}>{t.name}</span><CP chain={t.chain}/>{boostSet.has(t.addr)&&<Badge color={T.g}>BOOST</Badge>}</div><div style={{fontSize:9,color:T.txG,fontFamily:T.m}}>{short(t.addr)}</div></div></div></td><td style={{padding:"8px",fontSize:11,fontWeight:600,color:T.tx,fontFamily:T.m}}>{fmt(t.mc)}</td><td style={{padding:"8px",fontSize:11,fontWeight:500,color:t.liq<10000?T.r:T.txS,fontFamily:T.m}}>{fmt(t.liq)}</td><td style={{padding:"8px",fontSize:11,fontWeight:500,color:t.v5m>0?T.tx:T.txM,fontFamily:T.m}}>{fmt(t.v5m)}</td><td style={{padding:"8px",fontSize:11,fontWeight:500,color:t.v1h>0?T.tx:T.txM,fontFamily:T.m}}>{fmt(t.v1h)}</td><td style={{padding:"8px",fontSize:11,fontWeight:500,color:T.tx,fontFamily:T.m}}>{fmt(t.v24h)}</td><td style={{padding:"8px"}}><Dv v={t.pc5m}/></td><td style={{padding:"8px"}}><Dv v={t.pc1h}/></td><td style={{padding:"8px"}}><BSBar p={t.bp5}/></td><td style={{padding:"8px",fontSize:11,fontWeight:500,color:T.txS,fontFamily:T.m}}>{t.tx24>0?t.tx24.toLocaleString():"—"}</td><td style={{padding:"8px",fontSize:10,color:T.txM,fontFamily:T.m}}>{fmtAge(t.age)}</td></tr>)}</tbody></table>
-{!filtered.length&&<div style={{padding:40,textAlign:"center",color:T.txM,fontSize:11,fontFamily:T.m}}>No tokens match. Loosen filters.</div>}</div></div>};
+  useEffect(() => { loadFeed(); }, [loadFeed]);
 
-/* MAIN */
-export default function App(){const[tab,setTab]=useState("screener");const[chain,setChain]=useState("solana");const[pairs,setPairs]=useState([]);const[boosted,setBoosted]=useState([]);const[loading,setLoading]=useState(true);const[lastUp,setLastUp]=useState(null);
-const load=useCallback(async()=>{setLoading(true);try{const[pd,bd]=await Promise.all([getNewPairs(chain),getBoosted()]);setPairs(pd.map(norm).filter(p=>p.mc>0||p.liq>0));setBoosted(bd);setLastUp(new Date())}catch(e){console.error(e)}setLoading(false)},[chain]);
-useEffect(()=>{load()},[load]);useEffect(()=>{const iv=setInterval(load,30000);return()=>clearInterval(iv)},[load]);
-return<div style={{minHeight:"100vh",background:T.bg,color:T.tx,fontFamily:T.s}}><style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');@font-face{font-family:'Geist Mono';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-mono/GeistMono-Regular.woff2') format('woff2');font-weight:400}@font-face{font-family:'Geist Mono';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-mono/GeistMono-Medium.woff2') format('woff2');font-weight:500}@font-face{font-family:'Geist Mono';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-mono/GeistMono-SemiBold.woff2') format('woff2');font-weight:600}@font-face{font-family:'Geist Mono';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-mono/GeistMono-Bold.woff2') format('woff2');font-weight:700}@font-face{font-family:'Geist';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-sans/Geist-Regular.woff2') format('woff2');font-weight:400}@font-face{font-family:'Geist';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-sans/Geist-Medium.woff2') format('woff2');font-weight:500}@font-face{font-family:'Geist';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-sans/Geist-SemiBold.woff2') format('woff2');font-weight:600}@font-face{font-family:'Geist';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-sans/Geist-Bold.woff2') format('woff2');font-weight:700}*{box-sizing:border-box;margin:0;padding:0}body{background:${T.bg}}*::-webkit-scrollbar{width:3px;height:3px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:${T.brd};border-radius:2px}@keyframes fadeUp{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}table{border-collapse:collapse;width:100%}th,td{text-align:right}th:first-child,td:first-child{text-align:left}`}</style>
-<div style={{position:"fixed",inset:0,pointerEvents:"none",opacity:.012,backgroundImage:`radial-gradient(circle at 1px 1px, ${T.txM} 1px, transparent 0)`,backgroundSize:"24px 24px"}}/>
-<header style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 24px",borderBottom:`1px solid ${T.brd}`,background:T.bg1,position:"sticky",top:0,zIndex:100}}><div style={{display:"flex",alignItems:"center",gap:14}}><div style={{display:"flex",alignItems:"center",gap:8}}><div style={{width:4,height:18,borderRadius:1,background:T.g}}/><span style={{fontSize:13,fontWeight:700,letterSpacing:3.5,color:T.w,fontFamily:T.m}}>SIGNAL</span><span style={{fontSize:9,color:T.txM,fontFamily:T.m,letterSpacing:1}}>v3</span></div><span style={{width:1,height:14,background:T.brd}}/><div style={{display:"flex",gap:4}}><Badge color={T.g}>HELIUS</Badge><Badge color={T.p}>BIRDEYE</Badge><Badge color={T.b}>DEXSCREENER</Badge></div></div><div style={{display:"flex",alignItems:"center",gap:12}}>{lastUp&&<span style={{fontSize:9,color:T.txM,fontFamily:T.m}}>{lastUp.toLocaleTimeString("en-US",{hour12:false})}</span>}<div style={{display:"flex",alignItems:"center",gap:5}}><span style={{width:5,height:5,borderRadius:"50%",background:T.g,animation:"pulse 2.5s ease-in-out infinite"}}/><span style={{fontSize:9,color:T.g,fontFamily:T.m,fontWeight:500}}>LIVE</span></div></div></header>
-<div style={{display:"flex",alignItems:"center",gap:12,padding:"8px 24px",borderBottom:`1px solid ${T.brd}`}}><div style={{display:"flex",gap:2,background:T.bg2,borderRadius:4,padding:2,border:`1px solid ${T.brd}`}}>{Object.entries(CHAINS).map(([k,v])=><Pill key={k} active={chain===k} onClick={()=>setChain(k)}>{v.l}</Pill>)}</div><span style={{width:1,height:14,background:T.brd}}/><div style={{display:"flex",gap:2}}>{[["screener","SCREENER"],["wallets","SMART WALLETS"],["bundles","BUNDLE CHECK"]].map(([id,l])=><button key={id} onClick={()=>setTab(id)} style={{padding:"5px 14px",borderRadius:3,border:"none",cursor:"pointer",fontSize:9,fontWeight:600,letterSpacing:1,fontFamily:T.m,background:tab===id?T.surface:"transparent",color:tab===id?T.w:T.txM,transition:"all .15s"}}>{l}</button>)}</div><div style={{flex:1}}/><button onClick={load} disabled={loading} style={{padding:"5px 12px",borderRadius:4,border:`1px solid ${T.brd}`,background:"transparent",color:loading?T.txM:T.txS,fontSize:9,fontWeight:600,fontFamily:T.m,cursor:loading?"default":"pointer",letterSpacing:1}}>{loading?"···":"REFRESH"}</button></div>
-<div style={{padding:"16px 24px 100px"}}>{tab==="screener"&&<TokenScreener pairs={pairs} boosted={boosted} loading={loading}/>}{tab==="wallets"&&<SmartWalletTracker/>}{tab==="bundles"&&<BundleDetector/>}</div>
-<div style={{position:"fixed",bottom:0,left:0,right:0,padding:"8px 24px",borderTop:`1px solid ${T.brd}`,background:T.bg1,display:"flex",justifyContent:"space-between",alignItems:"center",zIndex:50}}><div style={{display:"flex",gap:16}}>{[["DEXSCREENER","https://dexscreener.com"],["AXIOM","https://axiom.trade"],["JUPITER","https://jup.ag"]].map(([l,u])=><a key={l} href={u} target="_blank" rel="noopener noreferrer" style={{fontSize:9,fontWeight:600,letterSpacing:1.5,color:T.txM,fontFamily:T.m,textDecoration:"none"}} onMouseEnter={e=>e.currentTarget.style.color=T.g} onMouseLeave={e=>e.currentTarget.style.color=T.txM}>{l}</a>)}</div><div style={{fontSize:9,color:T.txG,fontFamily:T.m,display:"flex",alignItems:"center",gap:8}}>HELIUS + BIRDEYE + DEXSCREENER<span style={{width:4,height:4,borderRadius:"50%",background:T.g,animation:"pulse 2s infinite"}}/></div></div></div>}
+  const mints = useMemo(() => [...new Set(trades.map(t => t.mint).filter(Boolean))], [trades]);
+  const tInfo = useTokenInfo(mints);
+  const filtered = filter === "ALL" ? trades : trades.filter(t => t.action === filter);
+
+  // Convergence: multiple wallets buying same token
+  const convergence = useMemo(() => {
+    const map = {};
+    trades.filter(t => t.action === "BUY" && t.mint).forEach(t => {
+      if (!map[t.mint]) map[t.mint] = { wallets: new Set(), times: [] };
+      map[t.mint].wallets.add(t.wallet);
+      map[t.mint].times.push(t.time);
+    });
+    return Object.entries(map)
+      .filter(([_, v]) => v.wallets.size >= 2)
+      .map(([mint, v]) => ({ mint, count: v.wallets.size, names: [...v.wallets], lastTime: Math.max(...v.times) }))
+      .sort((a, b) => b.count - a.count);
+  }, [trades]);
+
+  return (
+    <div>
+      {/* CONVERGENCE ALERT */}
+      {convergence.length > 0 && (
+        <div style={{ marginBottom:20, padding:"16px 18px", borderRadius:8, background:T.gBg, border:`1px solid ${T.gBrd}` }}>
+          <div style={{ fontSize:10, fontWeight:700, letterSpacing:2.5, color:T.g, fontFamily:T.mono, marginBottom:12 }}>⚡ CONVERGENCE — MULTIPLE WALLETS BUYING SAME TOKEN</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+            {convergence.map((c, i) => {
+              const info = tInfo[c.mint];
+              return (
+                <div key={i} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"10px 14px", borderRadius:6, background:T.bg2, border:`1px solid ${T.g}12` }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                    <span style={{ fontSize:15, fontWeight:700, color:T.w, fontFamily:T.sans }}>{info?.symbol ? `$${info.symbol}` : short(c.mint, 6)}</span>
+                    <Badge color={T.g}>{c.count} WALLETS</Badge>
+                    <span style={{ fontSize:9, color:T.txS, fontFamily:T.mono }}>{c.names.join(" · ")}</span>
+                    {info?.mc && <span style={{ fontSize:10, color:T.txM, fontFamily:T.mono }}>MC {fmt(info.mc)}</span>}
+                    {info?.liquidity && <span style={{ fontSize:10, color:T.txM, fontFamily:T.mono }}>LIQ {fmt(info.liquidity)}</span>}
+                  </div>
+                  <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                    <span style={{ fontSize:9, color:T.txM, fontFamily:T.mono }}>{fmtAge(c.lastTime)}</span>
+                    <CopyBtn text={c.mint} label="CA" />
+                    <AxiomBtn mint={c.mint} />
+                    <DexBtn addr={c.mint} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* CONTROLS */}
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:14 }}>
+        <div style={{ display:"flex", gap:2, background:T.bg2, borderRadius:4, padding:2, border:`1px solid ${T.brd}` }}>
+          {["ALL","BUY","SELL"].map(f => (
+            <button key={f} onClick={() => setFilter(f)} style={{ padding:"5px 14px", borderRadius:3, border:"none", cursor:"pointer", fontSize:9, fontWeight:600, letterSpacing:.8, fontFamily:T.mono, background:filter===f?(f==="BUY"?T.gBg:f==="SELL"?T.rBg:T.s):"transparent", color:filter===f?(f==="BUY"?T.g:f==="SELL"?T.r:T.w):T.txM }}>{f}</button>
+          ))}
+        </div>
+        <button onClick={loadFeed} disabled={loading} style={{ padding:"5px 16px", borderRadius:4, border:`1px solid ${T.brd}`, background:"transparent", color:loading?T.txM:T.txS, fontSize:9, fontWeight:600, fontFamily:T.mono, cursor:loading?"default":"pointer", letterSpacing:1 }}>{loading ? "SCANNING..." : "REFRESH"}</button>
+        <div style={{ flex:1 }} />
+        <span style={{ fontSize:9, color:T.txM, fontFamily:T.mono }}>{filtered.length} trades from {wallets.length} wallets</span>
+      </div>
+
+      {/* TRADE FEED */}
+      <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
+        {filtered.map((t, i) => {
+          const info = tInfo[t.mint];
+          return (
+            <div key={t.sig+i} style={{ display:"grid", gridTemplateColumns:"34px 72px 1fr 90px 120px", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:4, background:i%2===0?"transparent":T.bg2+"40", border:`1px solid ${t.action==="BUY"&&convergence.some(c=>c.mint===t.mint)?T.g+"15":"transparent"}` }}
+              onMouseEnter={e => e.currentTarget.style.background=T.sH}
+              onMouseLeave={e => e.currentTarget.style.background=i%2===0?"transparent":T.bg2+"40"}>
+              <ActionTag action={t.action} />
+              <div style={{ display:"flex", alignItems:"center", gap:4 }}>
+                <span style={{ fontSize:10, fontWeight:700, color:T.g, fontFamily:T.mono }}>{t.wallet}</span>
+                <TierBadge tier={t.tier} />
+              </div>
+              <div>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <span style={{ fontSize:12, fontWeight:600, color:T.w, fontFamily:T.sans }}>{info?.symbol ? `$${info.symbol}` : short(t.mint, 5)}</span>
+                  {info?.mc && <span style={{ fontSize:9, color:T.txM, fontFamily:T.mono }}>MC {fmt(info.mc)}</span>}
+                  {t.solAmt > 0 && <span style={{ fontSize:9, color:t.action==="BUY"?T.g:T.r, fontFamily:T.mono, fontWeight:600 }}>{t.solAmt.toFixed(2)} SOL</span>}
+                </div>
+                <span style={{ fontSize:9, color:T.txG, fontFamily:T.mono }}>{t.src} · {fmtAge(t.time)}</span>
+              </div>
+              <span style={{ fontSize:9, color:T.txG, fontFamily:T.mono, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textAlign:"right" }}>{short(t.mint)}</span>
+              <div style={{ display:"flex", gap:4, justifyContent:"flex-end" }}>
+                <CopyBtn text={t.mint} label="CA" />
+                <AxiomBtn mint={t.mint} />
+                <DexBtn addr={t.mint} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {loading && !trades.length && <div style={{ padding:48, textAlign:"center", color:T.txM, fontSize:11, fontFamily:T.mono }}>Scanning {wallets.length} wallets for recent swaps...</div>}
+      {!loading && !trades.length && <div style={{ padding:48, textAlign:"center", color:T.txM, fontSize:11, fontFamily:T.mono }}>No swaps found. Hit REFRESH to try again.</div>}
+    </div>
+  );
+};
+
+/* ═══ WALLET MANAGER ═══ */
+const WalletManager = ({ wallets, setWallets }) => {
+  const [input, setInput] = useState("");
+  const [tag, setTag] = useState("");
+  const [expanded, setExpanded] = useState(null);
+  const [stats, setStats] = useState({});
+  const [busy, setBusy] = useState(null);
+
+  const add = () => {
+    if (!input.trim() || input.length < 32) return;
+    setWallets(p => [...p, { addr: input.trim(), tag: tag || `W-${p.length+1}`, notes: "", tier: 3 }]);
+    setInput(""); setTag("");
+  };
+  const remove = (addr) => setWallets(p => p.filter(w => w.addr !== addr));
+
+  const analyze = async (addr) => {
+    if (expanded === addr && stats[addr]) { setExpanded(null); return; }
+    setExpanded(addr);
+    if (stats[addr]) return;
+    setBusy(addr);
+    const [portfolio, txns] = await Promise.allSettled([birdPortfolio(addr), heliusSwaps(addr, 25)]);
+    const port = portfolio.status === "fulfilled" ? portfolio.value : [];
+    const swaps = txns.status === "fulfilled" ? parseSwaps(txns.value) : [];
+    const holdings = port.filter(t => t.uiAmount > 0 && t.symbol !== "SOL").sort((a, b) => (b.valueUsd || 0) - (a.valueUsd || 0));
+    const totalVal = holdings.reduce((s, t) => s + (t.valueUsd || 0), 0);
+    const solBal = port.find(t => t.symbol === "SOL");
+    const buys = swaps.filter(s => s.action === "BUY").length;
+    const sells = swaps.filter(s => s.action === "SELL").length;
+    setStats(p => ({ ...p, [addr]: { holdings: holdings.slice(0, 15), totalVal, sol: solBal?.uiAmount || 0, buys, sells, swaps: swaps.slice(0, 20) } }));
+    setBusy(null);
+  };
+
+  return (
+    <div>
+      <div style={{ display:"flex", gap:6, marginBottom:16 }}>
+        <input value={input} onChange={e => setInput(e.target.value)} placeholder="Paste wallet address..." style={{ flex:1, padding:"8px 12px", borderRadius:4, background:T.bg2, border:`1px solid ${T.brd}`, color:T.tx, fontSize:11, fontFamily:T.mono, outline:"none" }} onKeyDown={e => e.key === "Enter" && add()} onFocus={e => e.target.style.borderColor = T.g + "40"} onBlur={e => e.target.style.borderColor = T.brd} />
+        <input value={tag} onChange={e => setTag(e.target.value)} placeholder="Tag" style={{ width:80, padding:"8px", borderRadius:4, background:T.bg2, border:`1px solid ${T.brd}`, color:T.tx, fontSize:11, fontFamily:T.mono, outline:"none" }} />
+        <button onClick={add} style={{ padding:"8px 18px", borderRadius:4, background:T.gBg, border:`1px solid ${T.gBrd}`, color:T.g, fontSize:9, fontWeight:700, letterSpacing:1, fontFamily:T.mono, cursor:"pointer" }}>+ ADD</button>
+      </div>
+
+      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+        {wallets.map((w) => {
+          const st = stats[w.addr];
+          const isExp = expanded === w.addr;
+          return (
+            <div key={w.addr} style={{ borderRadius:6, border:`1px solid ${isExp ? T.g + "18" : T.brd}`, overflow:"hidden" }}>
+              {/* Row */}
+              <div onClick={() => analyze(w.addr)} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"11px 14px", cursor:"pointer", background:isExp ? T.gBg : "transparent", transition:"background .15s" }}
+                onMouseEnter={e => { if (!isExp) e.currentTarget.style.background = T.sH }}
+                onMouseLeave={e => { if (!isExp) e.currentTarget.style.background = "transparent" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                  <span style={{ fontSize:12, fontWeight:700, color:T.g, fontFamily:T.mono, minWidth:70 }}>{w.tag}</span>
+                  <TierBadge tier={w.tier} />
+                  <span style={{ fontSize:10, color:T.txM, fontFamily:T.mono, cursor:"pointer" }} onClick={e => { e.stopPropagation(); cp(w.addr) }}>{short(w.addr)}</span>
+                  <span style={{ fontSize:9, color:T.txG, fontFamily:T.mono }}>{w.notes}</span>
+                </div>
+                <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                  {st && <span style={{ fontSize:9, color:T.txS, fontFamily:T.mono }}>{st.sol.toFixed(1)} SOL · {fmt(st.totalVal)} · {st.buys}B/{st.sells}S</span>}
+                  {busy === w.addr && <span style={{ fontSize:9, color:T.b, fontFamily:T.mono }}>analyzing...</span>}
+                  <a href={`https://solscan.io/account/${w.addr}`} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ padding:"4px 8px", borderRadius:3, border:`1px solid ${T.brd}`, color:T.txM, fontSize:8, fontWeight:700, fontFamily:T.mono, textDecoration:"none" }}>SOLSCAN</a>
+                  {w.tier === 3 && <button onClick={e => { e.stopPropagation(); remove(w.addr) }} style={{ padding:"4px 8px", borderRadius:3, border:`1px solid ${T.r}15`, background:"transparent", color:T.r, fontSize:8, fontWeight:700, fontFamily:T.mono, cursor:"pointer" }}>✕</button>}
+                </div>
+              </div>
+
+              {/* Expanded Detail */}
+              {isExp && st && (
+                <div style={{ padding:"14px 14px 18px", borderTop:`1px solid ${T.brd}` }}>
+                  <div style={{ fontSize:9, color:T.g, fontFamily:T.mono, letterSpacing:2, fontWeight:700, marginBottom:10 }}>HOLDINGS</div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:2, marginBottom:18 }}>
+                    {st.holdings.length === 0 && <span style={{ fontSize:10, color:T.txM, fontFamily:T.mono }}>No token holdings found</span>}
+                    {st.holdings.map((tk, j) => (
+                      <div key={j} style={{ display:"grid", gridTemplateColumns:"80px 1fr 70px 60px 90px", alignItems:"center", gap:6, padding:"5px 8px", borderRadius:3, background:j % 2 === 0 ? "transparent" : T.bg2 + "30", fontSize:10, fontFamily:T.mono }}>
+                        <span style={{ color:T.b, fontWeight:600 }}>{tk.symbol || "???"}</span>
+                        <span style={{ color:T.txG, cursor:"pointer" }} onClick={() => cp(tk.address)}>{short(tk.address)}</span>
+                        <span style={{ color:T.txS, textAlign:"right" }}>{tk.uiAmount > 1e6 ? `${(tk.uiAmount / 1e6).toFixed(1)}M` : tk.uiAmount > 1e3 ? `${(tk.uiAmount / 1e3).toFixed(1)}K` : tk.uiAmount.toFixed(1)}</span>
+                        <span style={{ color:tk.valueUsd > 100 ? T.g : T.txM, textAlign:"right", fontWeight:600 }}>{tk.valueUsd > 0 ? fmt(tk.valueUsd) : "—"}</span>
+                        <div style={{ display:"flex", gap:3, justifyContent:"flex-end" }}>
+                          <CopyBtn text={tk.address} label="CA" />
+                          <AxiomBtn mint={tk.address} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={{ fontSize:9, color:T.p, fontFamily:T.mono, letterSpacing:2, fontWeight:700, marginBottom:10 }}>RECENT SWAPS</div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                    {st.swaps.length === 0 && <span style={{ fontSize:10, color:T.txM, fontFamily:T.mono }}>No recent swaps</span>}
+                    {st.swaps.map((sw, j) => (
+                      <div key={j} style={{ display:"grid", gridTemplateColumns:"34px 100px 80px 1fr 60px 70px", alignItems:"center", gap:6, padding:"4px 8px", borderRadius:3, background:j % 2 === 0 ? "transparent" : T.bg2 + "20", fontSize:10, fontFamily:T.mono }}>
+                        <ActionTag action={sw.action} />
+                        <span style={{ color:T.txS, cursor:"pointer" }} onClick={() => cp(sw.mint)}>{short(sw.mint)}</span>
+                        {sw.solAmt > 0 ? <span style={{ color:sw.action === "BUY" ? T.g : T.r }}>{sw.solAmt.toFixed(2)} SOL</span> : <span style={{ color:T.txG }}>—</span>}
+                        <span style={{ color:T.txG }}>{sw.src}</span>
+                        <span style={{ color:T.txM, textAlign:"right" }}>{fmtAge(sw.time)}</span>
+                        <div style={{ display:"flex", gap:3, justifyContent:"flex-end" }}>
+                          <CopyBtn text={sw.mint} label="CA" />
+                          <AxiomBtn mint={sw.mint} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+/* ═══ MAIN ═══ */
+export default function App() {
+  const [tab, setTab] = useState("feed");
+  const [wallets, setWallets] = useState(INIT_WALLETS);
+
+  return (
+    <div style={{ minHeight:"100vh", background:T.bg, color:T.tx, fontFamily:T.sans }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
+        @font-face{font-family:'Geist Mono';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-mono/GeistMono-Regular.woff2') format('woff2');font-weight:400}
+        @font-face{font-family:'Geist Mono';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-mono/GeistMono-Medium.woff2') format('woff2');font-weight:500}
+        @font-face{font-family:'Geist Mono';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-mono/GeistMono-SemiBold.woff2') format('woff2');font-weight:600}
+        @font-face{font-family:'Geist Mono';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-mono/GeistMono-Bold.woff2') format('woff2');font-weight:700}
+        @font-face{font-family:'Geist';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-sans/Geist-Regular.woff2') format('woff2');font-weight:400}
+        @font-face{font-family:'Geist';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-sans/Geist-Medium.woff2') format('woff2');font-weight:500}
+        @font-face{font-family:'Geist';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-sans/Geist-SemiBold.woff2') format('woff2');font-weight:600}
+        @font-face{font-family:'Geist';src:url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-sans/Geist-Bold.woff2') format('woff2');font-weight:700}
+        *{box-sizing:border-box;margin:0;padding:0}body{background:${T.bg}}
+        *::-webkit-scrollbar{width:3px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:${T.brd};border-radius:2px}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+      `}</style>
+
+      <div style={{ position:"fixed", inset:0, pointerEvents:"none", opacity:.01, backgroundImage:`radial-gradient(circle at 1px 1px, ${T.txM} 1px, transparent 0)`, backgroundSize:"24px 24px" }} />
+
+      <header style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 24px", borderBottom:`1px solid ${T.brd}`, background:T.bg1, position:"sticky", top:0, zIndex:100 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+          <div style={{ width:4, height:22, borderRadius:1, background:T.g }} />
+          <div>
+            <div style={{ fontSize:15, fontWeight:700, letterSpacing:4, color:T.w, fontFamily:T.mono }}>SIGNAL</div>
+            <div style={{ fontSize:8, color:T.txM, fontFamily:T.mono, letterSpacing:2.5, marginTop:1 }}>WALLET INTELLIGENCE</div>
+          </div>
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <Badge color={T.g}>HELIUS</Badge>
+          <Badge color={T.p}>BIRDEYE</Badge>
+          <div style={{ display:"flex", alignItems:"center", gap:5, marginLeft:6 }}>
+            <span style={{ width:5, height:5, borderRadius:"50%", background:T.g, animation:"pulse 2.5s ease-in-out infinite" }} />
+            <span style={{ fontSize:9, color:T.g, fontFamily:T.mono, fontWeight:500 }}>LIVE</span>
+          </div>
+        </div>
+      </header>
+
+      <div style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 24px", borderBottom:`1px solid ${T.brd}` }}>
+        {[["feed", "LIVE FEED", "What are they buying NOW"], ["wallets", "MY WALLETS", "Analyze & manage"]].map(([id, l, desc]) => (
+          <button key={id} onClick={() => setTab(id)} style={{ padding:"8px 22px", borderRadius:5, border:`1px solid ${tab === id ? T.g + "20" : T.brd}`, cursor:"pointer", fontSize:10, fontWeight:600, letterSpacing:1.2, fontFamily:T.mono, background:tab === id ? T.gBg : "transparent", color:tab === id ? T.g : T.txM, transition:"all .15s" }}>
+            {l}<div style={{ fontSize:8, color:tab === id ? T.g + "80" : T.txG, fontWeight:400, marginTop:2, letterSpacing:.5 }}>{desc}</div>
+          </button>
+        ))}
+        <div style={{ flex:1 }} />
+        <span style={{ fontSize:9, color:T.txM, fontFamily:T.mono }}>{wallets.length} wallets</span>
+      </div>
+
+      <div style={{ padding:"18px 24px 80px" }}>
+        {tab === "feed" && <LiveFeed wallets={wallets} />}
+        {tab === "wallets" && <WalletManager wallets={wallets} setWallets={setWallets} />}
+      </div>
+
+      <div style={{ position:"fixed", bottom:0, left:0, right:0, padding:"8px 24px", borderTop:`1px solid ${T.brd}`, background:T.bg1, display:"flex", justifyContent:"space-between", alignItems:"center", zIndex:50 }}>
+        <div style={{ display:"flex", gap:16 }}>
+          {[["AXIOM", "https://axiom.trade"], ["JUPITER", "https://jup.ag"], ["DEXSCREENER", "https://dexscreener.com"]].map(([l, u]) => (
+            <a key={l} href={u} target="_blank" rel="noopener noreferrer" style={{ fontSize:9, fontWeight:600, letterSpacing:1.5, color:T.txM, fontFamily:T.mono, textDecoration:"none" }}
+              onMouseEnter={e => e.currentTarget.style.color = T.g} onMouseLeave={e => e.currentTarget.style.color = T.txM}>{l}</a>
+          ))}
+        </div>
+        <span style={{ fontSize:9, color:T.txG, fontFamily:T.mono }}>Copy with conviction, not hope</span>
+      </div>
+    </div>
+  );
+}
