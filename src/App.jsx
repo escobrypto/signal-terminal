@@ -501,7 +501,7 @@ export default function Signal(){
         {!ld&&!hl.length&&!err&&<div style={{textAlign:"center",padding:60}}><div style={{fontSize:36,opacity:.2,marginBottom:12}}>⚡</div><div style={{fontSize:11,color:C.tS,letterSpacing:2}}>PASTE A TOKEN MINT TO BEGIN</div></div>}
       </div>}
       {tab==="validate"&&<div style={{animation:"fadeIn 0.2s"}}><VTab/></div>}
-      {tab==="watchlist"&&<div style={{animation:"fadeIn 0.2s"}}><WL wl={wl} onRm={i=>setWl(wl.filter((_,x)=>x!==i)} price={tokenPrice}/></div>}
+      {tab==="watchlist"&&<div style={{animation:"fadeIn 0.2s"}}><WL wl={wl} onRm={i=>setWl(wl.filter((_,x)=>x!==i))} price={tokenPrice}/></div>}
     </main>
     <footer style={{padding:"12px 22px",borderTop:`1px solid ${C.bd}`,display:"flex",justifyContent:"space-between",marginTop:20}}>
       <span style={{fontSize:9,color:C.tM,letterSpacing:2}}>SIGNAL v3.2 — PnL from TX parsing</span>
